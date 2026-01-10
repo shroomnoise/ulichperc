@@ -86,15 +86,32 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
         int midiNote = 60 + fileNumber - 1; // 1 -> 60 (C4), 2 -> 61, etc.
         DBG("  Parsed fileNumber=" << fileNumber << ", midiNote=" << midiNote);
 
+        int minVel = 0;
+        int maxVel = 127;
+
+        // First 5 files: stack on MIDI 60 and map to velocity zones
+        if (fileNumber >= 1 && fileNumber <= 5)
+        {
+            midiNote = 60;
+
+            static constexpr int zoneMin[5] = {  1, 26, 51, 76, 100 };
+            static constexpr int zoneMax[5] = { 25, 50, 75, 99, 127 };
+
+            minVel = zoneMin[fileNumber - 1];
+            maxVel = zoneMax[fileNumber - 1];
+        }
+
         auto* sound = new MetaSamplerSound(
             cleanName,
             *reader,
             juce::BigInteger().setRange(midiNote, 1, true),
             midiNote,
-            0.001,   // attack
-            0.05,    // release
+            0.001,
+            0.05,
             reader->lengthInSamples / reader->sampleRate,
-            name
+            name,
+            minVel,
+            maxVel
         );
 
         sampler.addSound(sound);

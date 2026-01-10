@@ -7,14 +7,21 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
                                    double attackTimeSeconds,
                                    double releaseTimeSeconds,
                                    double maxSampleLengthSeconds,
-                                   const juce::String& wavResourceNameForMetadata)
+                                   const juce::String& wavResourceNameForMetadata,
+                                   int minVelocityIn,
+                                   int maxVelocityIn)
     : name(soundName),
       sourceSampleRate(source.sampleRate),
       midiRootNote(midiNoteForNormalPitch),
       midiNotes(notes),
       attackTime(attackTimeSeconds),
-      releaseTime(releaseTimeSeconds)
+      releaseTime(releaseTimeSeconds),
+      minVelocity(juce::jlimit(0, 127, minVelocityIn)),
+      maxVelocity(juce::jlimit(0, 127, maxVelocityIn))
 {
+    if (minVelocity > maxVelocity)
+        std::swap(minVelocity, maxVelocity);
+    
     if (sourceSampleRate <= 0.0)
         sourceSampleRate = 44100.0;
 
