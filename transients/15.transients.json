@@ -1,0 +1,8 @@
+{
+  "version": 3,
+  "sampleRate": 44100,
+  "lengthSec": 0.5,
+  "transients": [
+    0.014829931972789115,
+  ]
+}
