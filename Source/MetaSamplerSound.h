@@ -7,16 +7,14 @@
 class MetaSamplerSound : public juce::SynthesiserSound
 {
 public:
-    MetaSamplerSound(const juce::String& soundName,
-                                   juce::AudioFormatReader& source,
-                                   const juce::BigInteger& notes,
-                                   int midiNoteForNormalPitch,
-                                   double attackTimeSeconds,
-                                   double releaseTimeSeconds,
-                                   double maxSampleLengthSeconds,
-                                   const juce::String& wavResourceNameForMetadata,
-                                   int minVelocityIn,
-                                   int maxVelocityIn);
+    MetaSamplerSound(const juce::String& name,
+                     juce::AudioFormatReader& source,
+                     const juce::BigInteger& midiNotes,
+                     int midiNoteForNormalPitch,
+                     double attackTimeSeconds,
+                     double releaseTimeSeconds,
+                     double maxSampleLengthSeconds,
+                     const juce::String& wavResourceNameForMetadata);
 
     bool appliesToNote(int midiNoteNumber) override;
     bool appliesToChannel(int midiChannel) override;
@@ -30,15 +28,6 @@ public:
 
     std::unique_ptr<SampleMetadata> metadata;
 
-    int getMinVelocity() const noexcept { return minVelocity; } // 0..127
-    int getMaxVelocity() const noexcept { return maxVelocity; } // 0..127
-
-    bool matchesVelocity (float v01) const noexcept
-    {
-        const int v = juce::jlimit(0, 127, (int) std::round(v01 * 127.0f));
-        return v >= minVelocity && v <= maxVelocity;
-    }
-
 private:
     juce::String name;
     juce::AudioBuffer<float> data;
@@ -51,7 +40,4 @@ private:
 
     double attackTime = 0.0;
     double releaseTime = 0.0;
-
-    int minVelocity = 0;
-    int maxVelocity = 127;
 };
