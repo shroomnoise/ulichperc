@@ -2,6 +2,7 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 #include "MetaSamplerSound.h"
+#include <rubberband/RubberBandStretcher.h>
 
 // Voice that plays MetaSamplerSound and shortens sustain tails
 // based on transient JSON metadata.
@@ -28,6 +29,7 @@ public:
     void renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                          int startSample,
                          int numSamples) override;
+    void setHostBpmParam(std::atomic<double>* p) { hostBpmParam = p; }
 
 private:
     MetaSamplerSound* currentSound = nullptr;
@@ -50,4 +52,17 @@ private:
     // Per-sample gain inside sustain zones (shortens tail as knob increases)
     float computeSustainGain(double timeSec, float amount);
     float velocityGain = 1.0f;
+    
+    std::atomic<double>* hostBpmParam = nullptr;
+
+    bool isWarping = false;
+    double currentTimeRatio = 1.0;
+    int rbSrcPos = 0;
+    bool rbEnded = false;
+
+    std::unique_ptr<RubberBand::RubberBandStretcher> rb;
+    juce::AudioBuffer<float> rbIn, rbOut;
+    std::array<const float*, 2> rbInPtrs {};
+    std::array<float*, 2> rbOutPtrs {};
+    double warpedOutputTimeSec = 0.0;
 };

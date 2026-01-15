@@ -86,6 +86,8 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
         int midiNote = 60 + fileNumber - 1; // 1 -> 60 (C4), 2 -> 61, etc.
         DBG("  Parsed fileNumber=" << fileNumber << ", midiNote=" << midiNote);
 
+        const bool shouldWarp = (fileNumber == 6 || fileNumber == 21 || fileNumber == 28 || fileNumber == 33);
+
         auto* sound = new MetaSamplerSound(
             cleanName,
             *reader,
@@ -94,7 +96,9 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
             0.001,   // attack
             0.05,    // release
             reader->lengthInSamples / reader->sampleRate,
-            name
+            name,
+            shouldWarp,
+            150.0
         );
 
         sampler.addSound(sound);
@@ -115,6 +119,9 @@ void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
 {
     juce::ignoreUnused(samplesPerBlock);
     sampler.setCurrentPlaybackSampleRate(sampleRate);
+    for (int i = 0; i < sampler.getNumVoices(); ++i)
+    if (auto* v = dynamic_cast<MetaSamplerVoice*>(sampler.getVoice(i)))
+        v->setHostBpmParam(&hostBpmAtomic);
 }
 
 void AudioPluginAudioProcessor::releaseResources() {}
@@ -220,25 +227,6 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         heldPerChannel[(size_t)ch]  = held;
         phasePerChannel[(size_t)ch] = phase;
     }
-
-    // --- Sample Rate Reduction (old) ---
-    // int rateDivide = static_cast<int>(rateDivideParam->load());
-    // if (rateDivide > 1)
-    // {
-    //     for (int ch = 0; ch < numChannels; ++ch)
-    //     {
-    //         float* data = buffer.getWritePointer(ch);
-
-    //         float held = data[0];
-    //         for (int i = 0; i < numSamples; ++i)
-    //         {
-    //             if (i % rateDivide == 0)
-    //                 held = data[i];   // take a real sample
-    //             else
-    //                 data[i] = held;   // hold previous sample
-    //         }
-    //     }
-    // }    
 }
 
 //==============================================================================

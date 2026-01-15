@@ -24,6 +24,7 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
     sourceSamplePosition = 0.0;
     currentTransientIndex = 0;
     metadata = nullptr;
+    warpedOutputTimeSec = 0.0;
 
     juce::ignoreUnused(midiNoteNumber);
 
@@ -31,6 +32,11 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
         const float v = juce::jlimit(0.0f, 1.0f, velocity);
         velocityGain = std::sqrt(v);
     }
+
+    isWarping = false;
+    rbEnded = false;
+    rbSrcPos = 0;
+    currentTimeRatio = 1.0;
 
     if (currentSound != nullptr)
     {
@@ -46,12 +52,39 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
 
         adsr.setSampleRate(playbackSR);
         adsr.noteOn();
+
+        // Enable Complex-style warp only for marked sounds
+        isWarping = (currentSound->isWarpEnabled() && hostBpmParam != nullptr);
+
+        if (isWarping)
+        {
+            const int chans = juce::jlimit(1, 2, currentSound->getAudioData().getNumChannels());
+
+            if (!rb)
+            {
+                rb = std::make_unique<RubberBand::RubberBandStretcher>(
+                    (size_t)playbackSR,
+                    (size_t)chans,
+                    RubberBand::RubberBandStretcher::OptionProcessRealTime
+                      | RubberBand::RubberBandStretcher::OptionThreadingNever
+                      | RubberBand::RubberBandStretcher::OptionTransientsMixed
+                );
+            }
+
+            rb->reset();
+
+            // Preallocate to avoid allocations in render (best-effort)
+            const int initial = 4096;
+            rbIn.setSize (chans, initial, false, false, true);
+            rbOut.setSize(chans, initial, false, false, true);
+        }
     }
     else
     {
         clearCurrentNote();
     }
 }
+
 
 void MetaSamplerVoice::stopNote(float /*velocity*/, bool allowTailOff)
 {
@@ -66,6 +99,12 @@ void MetaSamplerVoice::stopNote(float /*velocity*/, bool allowTailOff)
         currentSound = nullptr;
         metadata = nullptr;
         currentTransientIndex = 0;
+
+        isWarping = false;
+        rbEnded = false;
+        rbSrcPos = 0;
+        currentTimeRatio = 1.0;
+        if (rb) rb->reset();
     }
 }
 
@@ -92,6 +131,119 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
         return;
     }
 
+    // -------------------- WARP PATH (Complex-like) --------------------
+    if (isWarping && rb && hostBpmParam != nullptr)
+    {
+        const double hostBpm = juce::jmax(1.0, hostBpmParam->load(std::memory_order_relaxed));
+        const double ratio   = currentSound->getOriginalBpm() / hostBpm; // 150 / host
+
+        if (std::abs(ratio - currentTimeRatio) > 1e-6)
+        {
+            currentTimeRatio = ratio;
+            rb->setTimeRatio(ratio);
+        }
+
+        const int chans = juce::jlimit(1, 2, sourceNumChans);
+
+        if (rbIn.getNumChannels() != chans || rbIn.getNumSamples() < numSamples)
+        {
+            rbIn.setSize (chans, numSamples, false, false, true);
+            rbOut.setSize(chans, numSamples, false, false, true);
+        }
+
+        // NOTE: sustain-shortening disabled in warp mode (source time != output time)
+        int produced = 0;
+
+        while (produced < numSamples)
+        {
+            int available = (int) rb->available();
+
+            // If no output is available, feed more input (unless ended)
+            if (available <= 0)
+            {
+                if (!rbEnded)
+                {
+                    const int remaining = sourceNumSamples - rbSrcPos;
+                    const int toFeed = juce::jmin(numSamples, remaining);
+
+                    if (toFeed > 0)
+                    {
+                        rbIn.copyFrom(0, 0, data, 0, rbSrcPos, toFeed);
+                        if (chans > 1)
+                            rbIn.copyFrom(1, 0, data, 1, rbSrcPos, toFeed);
+
+                        rbInPtrs[0] = rbIn.getReadPointer(0);
+                        rbInPtrs[1] = (chans > 1) ? rbIn.getReadPointer(1) : rbIn.getReadPointer(0);
+
+                        rb->process(rbInPtrs.data(), (size_t)toFeed, false);
+                        rbSrcPos += toFeed;
+                        continue;
+                    }
+
+                    // End of input: tell Rubber Band, release ADSR (NO LOOPING)
+                    rb->process(nullptr, 0, true);
+                    rbEnded = true;
+                    adsr.noteOff();
+                    continue;
+                }
+
+                // Ended and no output available: just run ADSR to finish tail (silence)
+                for (; produced < numSamples; ++produced)
+                {
+                    adsr.getNextSample();
+                    if (!adsr.isActive())
+                    {
+                        clearCurrentNote();
+                        currentSound = nullptr;
+                        metadata = nullptr;
+                        return;
+                    }
+                }
+                return;
+            }
+
+            const int toGet = juce::jmin(available, numSamples - produced);
+
+            rbOutPtrs[0] = rbOut.getWritePointer(0);
+            rbOutPtrs[1] = (chans > 1) ? rbOut.getWritePointer(1) : rbOut.getWritePointer(0);
+
+            rb->retrieve(rbOutPtrs.data(), (size_t)toGet);
+
+            for (int i = 0; i < toGet; ++i)
+            {
+                const float env = adsr.getNextSample();
+                const float g   = env * velocityGain;
+
+                if (!adsr.isActive())
+                {
+                    clearCurrentNote();
+                    currentSound = nullptr;
+                    metadata = nullptr;
+                    return;
+                }
+
+                const float inL = rbOut.getSample(0, i);
+                const float inR = (outNumChans > 1) ? rbOut.getSample(juce::jmin(1, chans - 1), i) : inL;
+
+                const float sampleL = inL * g;
+                const float sampleR = inR * g;
+
+                outputBuffer.addSample(0, startSample + produced + i, sampleL);
+                if (outNumChans > 1)
+                    outputBuffer.addSample(1, startSample + produced + i, sampleR);
+
+                for (int ch = 2; ch < outNumChans; ++ch)
+                    outputBuffer.addSample(ch, startSample + produced + i, 0.5f * (sampleL + sampleR));
+            }
+
+            produced += toGet;
+        }
+
+        return;
+    }
+    // ------------------ END WARP PATH ------------------
+
+    // ------------------ ORIGINAL (NON-WARP) PATH ------------------
     float sustainAmount = sustainAmountParam != nullptr ? sustainAmountParam->load() : 0.0f;
     sustainAmount = juce::jlimit(0.0f, 1.0f, sustainAmount);
 
@@ -148,7 +300,8 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
 
             if (doSustainShorten)
             {
-                const double timeSec = sourceSamplePosition / metadata->sampleRate;
+                warpedOutputTimeSec += 1.0 / getSampleRate();
+                const double timeSec = warpedOutputTimeSec / juce::jmax(1e-9, currentTimeRatio);
                 const float sustainGain = computeSustainGain(timeSec, sustainAmount);
                 sampleL *= sustainGain;
                 sampleR *= sustainGain;

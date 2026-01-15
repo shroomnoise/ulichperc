@@ -7,13 +7,17 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
                                    double attackTimeSeconds,
                                    double releaseTimeSeconds,
                                    double maxSampleLengthSeconds,
-                                   const juce::String& wavResourceNameForMetadata)
+                                   const juce::String& wavResourceNameForMetadata,
+                                   bool warpEnabledIn,
+                                   double originalBpmIn)
     : name(soundName),
       sourceSampleRate(source.sampleRate),
       midiRootNote(midiNoteForNormalPitch),
       midiNotes(notes),
       attackTime(attackTimeSeconds),
-      releaseTime(releaseTimeSeconds)
+      releaseTime(releaseTimeSeconds),
+      warpEnabled(warpEnabledIn),
+      originalBpm(originalBpmIn)
 {
     if (sourceSampleRate <= 0.0)
         sourceSampleRate = 44100.0;
