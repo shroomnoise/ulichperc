@@ -54,13 +54,31 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
         adsr.noteOn();
 
         // Enable Complex-style warp only for marked sounds
-        isWarping = (currentSound->isWarpEnabled() && hostBpmParam != nullptr);
+        const bool warpToggle = (warpEnabledParam != nullptr)
+                                && warpEnabledParam->load(std::memory_order_relaxed);
+        isWarping = (currentSound->isWarpEnabled() && hostBpmParam != nullptr && warpToggle);
+
+        // If warp is on and this is sample #33, start from its 3rd transient
+        if (isWarping && metadata != nullptr && midiNoteNumber == 92 /* 60 + 33 - 1 */
+            && metadata->transients.size() >= 3)
+        {
+            const double sr = (metadata->sampleRate > 0.0) ? metadata->sampleRate
+                                                           : sourceSR;
+            const double t  = metadata->transients[2];
+            const double sampleOffset = juce::jmax(0.0, t * sr);
+            rbSrcPos = (int) juce::jlimit(0.0, (double) currentSound->getAudioData().getNumSamples() - 1.0, sampleOffset);
+            sourceSamplePosition = (double) rbSrcPos;
+        }
 
         if (isWarping)
         {
             const int chans = juce::jlimit(1, 2, currentSound->getAudioData().getNumChannels());
 
-            if (!rb)
+            const bool rebuildRb = (!rb)
+                                   || rbSampleRate != (size_t)playbackSR
+                                   || rbChannels   != chans;
+
+            if (rebuildRb)
             {
                 rb = std::make_unique<RubberBand::RubberBandStretcher>(
                     (size_t)playbackSR,
@@ -69,6 +87,8 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
                       | RubberBand::RubberBandStretcher::OptionThreadingNever
                       | RubberBand::RubberBandStretcher::OptionTransientsMixed
                 );
+                rbSampleRate = (size_t)playbackSR;
+                rbChannels   = chans;
             }
 
             rb->reset();
@@ -123,7 +143,7 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     const int sourceNumChans   = data.getNumChannels();
     const int outNumChans      = outputBuffer.getNumChannels();
 
-    if (!adsr.isActive())
+    if (sourceNumSamples <= 0 || sourceNumChans <= 0 || !adsr.isActive())
     {
         clearCurrentNote();
         currentSound = nullptr;
@@ -163,8 +183,26 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             {
                 if (!rbEnded)
                 {
-                    const int remaining = sourceNumSamples - rbSrcPos;
-                    const int toFeed = juce::jmin(numSamples, remaining);
+                    const int remaining    = sourceNumSamples - rbSrcPos;
+                    if (remaining <= 0)
+                    {
+                        rb->process(nullptr, 0, true);
+                        rbEnded = true;
+                        adsr.noteOff();
+                        continue;
+                    }
+
+                    const size_t required  = juce::jmax<size_t>(1, rb->getSamplesRequired());
+                    const int requiredInt  = (int) juce::jlimit<size_t>(1, (size_t) INT_MAX, required);
+
+                    // Ensure input buffer can hold the required block
+                    if (rbIn.getNumSamples() < requiredInt)
+                    {
+                        rbIn.setSize (chans, requiredInt, false, false, true);
+                        rbOut.setSize(chans, juce::jmax(requiredInt, numSamples), false, false, true);
+                    }
+
+                    const int toFeed = juce::jmin(requiredInt, remaining);
 
                     if (toFeed > 0)
                     {
@@ -172,11 +210,13 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                         if (chans > 1)
                             rbIn.copyFrom(1, 0, data, 1, rbSrcPos, toFeed);
 
-                        rbInPtrs[0] = rbIn.getReadPointer(0);
-                        rbInPtrs[1] = (chans > 1) ? rbIn.getReadPointer(1) : rbIn.getReadPointer(0);
+                        const float* in0 = rbIn.getReadPointer(0);
+                        const float* in1 = (chans > 1) ? rbIn.getReadPointer(1) : in0;
+                        rbInPtrs[0] = in0;
+                        rbInPtrs[1] = in1;
 
                         rb->process(rbInPtrs.data(), (size_t)toFeed, false);
-                        rbSrcPos += toFeed;
+                        rbSrcPos = juce::jmin(rbSrcPos + toFeed, sourceNumSamples);
                         continue;
                     }
 
@@ -204,8 +244,11 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
 
             const int toGet = juce::jmin(available, numSamples - produced);
 
-            rbOutPtrs[0] = rbOut.getWritePointer(0);
-            rbOutPtrs[1] = (chans > 1) ? rbOut.getWritePointer(1) : rbOut.getWritePointer(0);
+            float* out0 = rbOut.getWritePointer(0);
+            float* out1 = (chans > 1) ? rbOut.getWritePointer(1) : out0;
+
+            rbOutPtrs[0] = out0;
+            rbOutPtrs[1] = out1;
 
             rb->retrieve(rbOutPtrs.data(), (size_t)toGet);
 

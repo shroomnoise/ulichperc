@@ -34,6 +34,7 @@ public:
     juce::AudioProcessorValueTreeState parameters;
     std::atomic<float>* bitDepthParam = nullptr;
     std::atomic<float>* sustainShortenParam = nullptr;
+    std::atomic<float>* warpParamRaw = nullptr;
     
     std::vector<float> heldPerChannel;
     std::vector<int> phasePerChannel;
@@ -55,7 +56,8 @@ private:
     //==============================================================================
     juce::Synthesiser sampler;
     std::unique_ptr<juce::AudioFormatReader> reader;
-    std::atomic<double> hostBpmAtomic { 120.0 };
+    std::atomic<double> hostBpmAtomic { 150.0 };
+    std::atomic<bool> warpEnabledAtomic { true };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPluginAudioProcessor)
 };

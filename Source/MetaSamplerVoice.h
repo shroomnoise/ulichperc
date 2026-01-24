@@ -30,6 +30,7 @@ public:
                          int startSample,
                          int numSamples) override;
     void setHostBpmParam(std::atomic<double>* p) { hostBpmParam = p; }
+    void setWarpEnabledParam(std::atomic<bool>* p) { warpEnabledParam = p; }
 
 private:
     MetaSamplerSound* currentSound = nullptr;
@@ -54,6 +55,7 @@ private:
     float velocityGain = 1.0f;
     
     std::atomic<double>* hostBpmParam = nullptr;
+    std::atomic<bool>* warpEnabledParam = nullptr;
 
     bool isWarping = false;
     double currentTimeRatio = 1.0;
@@ -61,6 +63,8 @@ private:
     bool rbEnded = false;
 
     std::unique_ptr<RubberBand::RubberBandStretcher> rb;
+    size_t rbSampleRate = 0;
+    int rbChannels = 0;
     juce::AudioBuffer<float> rbIn, rbOut;
     std::array<const float*, 2> rbInPtrs {};
     std::array<float*, 2> rbOutPtrs {};

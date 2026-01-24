@@ -1,4 +1,4 @@
-#include "TransientMetadata.h"
+#include "SampleMetadata.h"
 
 std::unique_ptr<SampleMetadata> loadMetadataForResource(const juce::String& wavResourceName)
 {

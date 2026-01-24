@@ -11,7 +11,8 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
     : AudioProcessor (BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, "params", {
           std::make_unique<juce::AudioParameterFloat>("rzhavchina", "Rzhavchina", juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f),
-          std::make_unique<juce::AudioParameterFloat>("sustainShorten", "Sustain Shorten", juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f)
+          std::make_unique<juce::AudioParameterFloat>("sustainShorten", "Sustain Shorten", juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f),
+          std::make_unique<juce::AudioParameterBool>("warpEnabled", "Warp Enabled", true)
       })
 {
     DBG("=== AudioPluginAudioProcessor constructor ===");
@@ -20,6 +21,7 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
     rateDivideParam = parameters.getRawParameterValue("rateDivide");
     rzhavParam = parameters.getRawParameterValue("rzhavchina");
     sustainShortenParam  = parameters.getRawParameterValue("sustainShorten");
+    warpParamRaw = parameters.getRawParameterValue("warpEnabled");
 
     // Voices
     sampler.clearVoices();
@@ -27,6 +29,8 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
     for (int i = 0; i < 8; ++i) {
         auto* v = new MetaSamplerVoice();
         v->setSustainParam(sustainShortenParam);
+        v->setWarpEnabledParam(&warpEnabledAtomic);
+        v->setHostBpmParam(&hostBpmAtomic);
         sampler.addVoice(v);
     }
     DBG("Added " << sampler.getNumVoices() << " sampler voices");
@@ -86,7 +90,7 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
         int midiNote = 60 + fileNumber - 1; // 1 -> 60 (C4), 2 -> 61, etc.
         DBG("  Parsed fileNumber=" << fileNumber << ", midiNote=" << midiNote);
 
-        const bool shouldWarp = (fileNumber == 6 || fileNumber == 21 || fileNumber == 28 || fileNumber == 33);
+        const bool shouldWarp = (fileNumber == 6 || fileNumber == 21 || fileNumber == 28 || fileNumber == 30 || fileNumber == 33);
 
         auto* sound = new MetaSamplerSound(
             cleanName,
@@ -121,7 +125,10 @@ void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     sampler.setCurrentPlaybackSampleRate(sampleRate);
     for (int i = 0; i < sampler.getNumVoices(); ++i)
     if (auto* v = dynamic_cast<MetaSamplerVoice*>(sampler.getVoice(i)))
+    {
         v->setHostBpmParam(&hostBpmAtomic);
+        v->setWarpEnabledParam(&warpEnabledAtomic);
+    }
 }
 
 void AudioPluginAudioProcessor::releaseResources() {}
@@ -150,7 +157,19 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
 
+    if (auto* ph = getPlayHead())
+    {
+        juce::AudioPlayHead::CurrentPositionInfo pos;
+        if (ph->getCurrentPosition(pos) && pos.bpm > 0.0)
+            hostBpmAtomic.store(pos.bpm, std::memory_order_relaxed);
+    }
+
     buffer.clear();
+
+    // Update warp flag for all voices (bool, thread-safe)
+    if (warpParamRaw != nullptr)
+        warpEnabledAtomic.store(warpParamRaw->load(std::memory_order_relaxed) >= 0.5f,
+                                std::memory_order_relaxed);
     sampler.renderNextBlock(buffer, midiMessages, 0, buffer.getNumSamples());
 
     const int numChannels = buffer.getNumChannels();
