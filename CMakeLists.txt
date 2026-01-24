@@ -52,7 +52,7 @@ endif()
 
 # Change these to your own preferences
 juce_add_plugin(${PROJECT_NAME}
-        COMPANY_NAME dsnoise
+        COMPANY_NAME shroomnoise
         IS_SYNTH TRUE
         NEEDS_MIDI_INPUT TRUE
         NEEDS_MIDI_OUTPUT FALSE
@@ -63,7 +63,7 @@ juce_add_plugin(${PROJECT_NAME}
         PLUGIN_MANUFACTURER_CODE Tap1
         PLUGIN_CODE Reg0
         FORMATS ${PLUGIN_FORMATS}
-        PRODUCT_NAME "ulichperc"
+        PRODUCT_NAME "ulichperc realtime"
         VST3_CATEGORIES Instrument
 )
 

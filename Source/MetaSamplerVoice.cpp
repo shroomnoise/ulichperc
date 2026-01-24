@@ -80,12 +80,18 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
 
             if (rebuildRb)
             {
+                const auto rbOpts =
+                    RubberBand::RubberBandStretcher::OptionProcessRealTime
+                  | RubberBand::RubberBandStretcher::OptionThreadingNever
+                  | RubberBand::RubberBandStretcher::OptionTransientsCrisp   // sharper percussive onsets
+                  | RubberBand::RubberBandStretcher::OptionDetectorPercussive
+                  | RubberBand::RubberBandStretcher::OptionWindowShort       // shorter window reduces smearing
+                  | RubberBand::RubberBandStretcher::OptionChannelsTogether; // keep stereo transients aligned
+
                 rb = std::make_unique<RubberBand::RubberBandStretcher>(
                     (size_t)playbackSR,
                     (size_t)chans,
-                    RubberBand::RubberBandStretcher::OptionProcessRealTime
-                      | RubberBand::RubberBandStretcher::OptionThreadingNever
-                      | RubberBand::RubberBandStretcher::OptionTransientsMixed
+                    rbOpts
                 );
                 rbSampleRate = (size_t)playbackSR;
                 rbChannels   = chans;
