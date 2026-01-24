@@ -202,7 +202,8 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                         rbOut.setSize(chans, juce::jmax(requiredInt, numSamples), false, false, true);
                     }
 
-                    const int toFeed = juce::jmin(requiredInt, remaining);
+                    const bool isLastBlock = (remaining <= requiredInt);
+                    const int toFeed       = juce::jmin(requiredInt, remaining);
 
                     if (toFeed > 0)
                     {
@@ -215,8 +216,13 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                         rbInPtrs[0] = in0;
                         rbInPtrs[1] = in1;
 
-                        rb->process(rbInPtrs.data(), (size_t)toFeed, false);
+                        rb->process(rbInPtrs.data(), (size_t)toFeed, isLastBlock);
                         rbSrcPos = juce::jmin(rbSrcPos + toFeed, sourceNumSamples);
+                        if (isLastBlock)
+                        {
+                            rbEnded = true;
+                            adsr.noteOff();
+                        }
                         continue;
                     }
 
