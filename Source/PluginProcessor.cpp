@@ -90,8 +90,6 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
         int midiNote = 60 + fileNumber - 1; // 1 -> 60 (C4), 2 -> 61, etc.
         DBG("  Parsed fileNumber=" << fileNumber << ", midiNote=" << midiNote);
 
-        const bool shouldWarp = (fileNumber == 6 || fileNumber == 21 || fileNumber == 28 || fileNumber == 30 || fileNumber == 33);
-
         auto* sound = new MetaSamplerSound(
             cleanName,
             *reader,
@@ -101,8 +99,7 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
             0.05,    // release
             reader->lengthInSamples / reader->sampleRate,
             name,
-            shouldWarp,
-            150.0
+            153.0
         );
 
         sampler.addSound(sound);

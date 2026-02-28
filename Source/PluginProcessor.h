@@ -56,7 +56,7 @@ private:
     //==============================================================================
     juce::Synthesiser sampler;
     std::unique_ptr<juce::AudioFormatReader> reader;
-    std::atomic<double> hostBpmAtomic { 150.0 };
+    std::atomic<double> hostBpmAtomic { 153.0 };
     std::atomic<bool> warpEnabledAtomic { true };
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPluginAudioProcessor)

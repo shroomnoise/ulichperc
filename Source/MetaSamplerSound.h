@@ -3,12 +3,21 @@
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_formats/juce_audio_formats.h>
 #include <memory>
+#include <mutex>
 
 #include "SampleMetadata.h"
 
 class MetaSamplerSound : public juce::SynthesiserSound
 {
 public:
+    struct WarpedCache
+    {
+        double bpm = 0.0;
+        double timeRatio = 1.0;
+        double sourceSampleRate = 44100.0;
+        juce::AudioBuffer<float> buffer;
+    };
+
     MetaSamplerSound(const juce::String& soundName,
                      juce::AudioFormatReader& source,
                      const juce::BigInteger& notes,
@@ -17,7 +26,6 @@ public:
                      double releaseTimeSeconds,
                      double maxSampleLengthSeconds,
                      const juce::String& wavResourceNameForMetadata,
-                     bool warpEnabledIn,
                      double originalBpmIn);
 
     // SynthesiserSound overrides
@@ -32,15 +40,19 @@ public:
     bool isWarpEnabled() const noexcept { return warpEnabled; }
     double getOriginalBpm() const noexcept { return originalBpm; }
 
+    std::shared_ptr<WarpedCache> getWarpedCache(double hostBpm) const;
+
     // Transient metadata (used by MetaSamplerVoice)
     std::unique_ptr<SampleMetadata> metadata = nullptr;
 
 private:
+    std::unique_ptr<WarpedCache> renderWarpedCache(double hostBpm) const;
+
     juce::String name;
 
     juce::AudioBuffer<float> data;
 
-    double sourceSampleRate = 44100.0;
+    double sourceSampleRate = 48000.0;
     int midiRootNote = 60;
 
     juce::BigInteger midiNotes;
@@ -54,5 +66,9 @@ private:
 
     // Warp configuration
     bool warpEnabled = false;
-    double originalBpm = 150.0;
+    double originalBpm = 153.0;
+
+    // Cache for pre-rendered warped audio (one BPM at a time)
+    mutable std::shared_ptr<WarpedCache> warpCache;
+    mutable std::mutex warpCacheMutex;
 };

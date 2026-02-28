@@ -63,7 +63,7 @@ juce_add_plugin(${PROJECT_NAME}
         PLUGIN_MANUFACTURER_CODE Tap1
         PLUGIN_CODE Reg0
         FORMATS ${PLUGIN_FORMATS}
-        PRODUCT_NAME "ulichperc realtime"
+        PRODUCT_NAME "ulichperc"
         VST3_CATEGORIES Instrument
 )
 

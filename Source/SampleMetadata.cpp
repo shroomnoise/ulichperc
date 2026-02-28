@@ -38,11 +38,15 @@ std::unique_ptr<SampleMetadata> loadMetadataForResource(const juce::String& wavR
     // JUCE 7 style: no default in getProperty
     meta->sampleRate = obj.hasProperty("sampleRate")
                          ? (double) obj.getProperty("sampleRate")
-                         : 44100.0;
+                         : 48000.0;
 
     meta->lengthSec = obj.hasProperty("lengthSec")
                         ? (double) obj.getProperty("lengthSec")
                         : 0.0;
+
+    meta->warp = obj.hasProperty("warp")
+                   ? (bool) obj.getProperty("warp")
+                   : false;
 
     auto tv = obj.getProperty("transients");
     if (tv.isArray())

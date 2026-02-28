@@ -34,6 +34,9 @@ public:
 
 private:
     MetaSamplerSound* currentSound = nullptr;
+    std::shared_ptr<MetaSamplerSound::WarpedCache> activeWarpCache;
+    const juce::AudioBuffer<float>* activeBuffer = nullptr;
+    double activeSourceSampleRate = 48000.0;
 
     // Playback state in source sample domain
     double sourceSamplePosition = 0.0;  // index into source buffer
@@ -58,6 +61,8 @@ private:
     std::atomic<bool>* warpEnabledParam = nullptr;
 
     bool isWarping = false;
+    bool isRealtimeWarping = false;
+    bool usingWarpCache = false;
     double currentTimeRatio = 1.0;
     int rbSrcPos = 0;
     bool rbEnded = false;

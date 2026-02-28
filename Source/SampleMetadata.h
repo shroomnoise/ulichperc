@@ -14,8 +14,9 @@ struct ZoneInfo
 // Metadata for a sample: zones parsed from your JSON
 struct SampleMetadata
 {
-    double sampleRate = 44100.0;
+    double sampleRate = 48000.0;
     double lengthSec  = 0.0;
+    bool warp = false;
     std::vector<double> transients;
 
     bool hasTransients() const noexcept { return !transients.empty(); }

@@ -1,4 +1,8 @@
 #include "MetaSamplerSound.h"
+#include <rubberband/RubberBandStretcher.h>
+#include <array>
+#include <cmath>
+#include <map>
 
 MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
                                    juce::AudioFormatReader& source,
@@ -8,7 +12,6 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
                                    double releaseTimeSeconds,
                                    double maxSampleLengthSeconds,
                                    const juce::String& wavResourceNameForMetadata,
-                                   bool warpEnabledIn,
                                    double originalBpmIn)
     : name(soundName),
       sourceSampleRate(source.sampleRate),
@@ -16,11 +19,10 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
       midiNotes(notes),
       attackTime(attackTimeSeconds),
       releaseTime(releaseTimeSeconds),
-      warpEnabled(warpEnabledIn),
       originalBpm(originalBpmIn)
 {
     if (sourceSampleRate <= 0.0)
-        sourceSampleRate = 44100.0;
+        sourceSampleRate = 48000.0;
 
     auto numSamples = static_cast<int>(juce::jmin((juce::int64) (sourceSampleRate * maxSampleLengthSeconds),
                                                   source.lengthInSamples));
@@ -34,11 +36,131 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
 
     // load transient metadata from BinaryData (if present)
     metadata = loadMetadataForResource(wavResourceNameForMetadata);
+    warpEnabled = (metadata != nullptr && metadata->warp);
 
     if (metadata)
         DBG("MetaSamplerSound: loaded transient metadata for " << wavResourceNameForMetadata);
     else
         DBG("MetaSamplerSound: no metadata for " << wavResourceNameForMetadata);
+}
+
+std::shared_ptr<MetaSamplerSound::WarpedCache> MetaSamplerSound::getWarpedCache(double hostBpm) const
+{
+    if (!warpEnabled || metadata == nullptr)
+        return nullptr;
+
+    const double bpm = juce::jmax(1.0, hostBpm);
+
+    std::lock_guard<std::mutex> lock(warpCacheMutex);
+
+    if (warpCache && std::abs(warpCache->bpm - bpm) < 0.01)
+        return warpCache;
+
+    auto newCache = renderWarpedCache(bpm);
+    if (newCache)
+        warpCache = std::shared_ptr<WarpedCache>(std::move(newCache));
+
+    return warpCache;
+}
+
+std::unique_ptr<MetaSamplerSound::WarpedCache> MetaSamplerSound::renderWarpedCache(double hostBpm) const
+{
+    if (metadata == nullptr)
+        return nullptr;
+
+    const int srcChannels = juce::jlimit(1, 2, data.getNumChannels());
+    const int srcSamples  = data.getNumSamples();
+
+    if (srcSamples <= 0)
+        return nullptr;
+
+    auto cache = std::make_unique<WarpedCache>();
+    cache->bpm = hostBpm;
+    cache->sourceSampleRate = metadata->sampleRate > 0.0 ? metadata->sampleRate
+                                                         : sourceSampleRate;
+
+    const double timeRatio = originalBpm / juce::jmax(1.0, hostBpm);
+    cache->timeRatio = timeRatio;
+
+    const auto opts =
+        RubberBand::RubberBandStretcher::OptionProcessOffline
+      | RubberBand::RubberBandStretcher::OptionThreadingNever
+      | RubberBand::RubberBandStretcher::OptionTransientsCrisp
+      | RubberBand::RubberBandStretcher::OptionDetectorPercussive
+      | RubberBand::RubberBandStretcher::OptionWindowShort
+      | RubberBand::RubberBandStretcher::OptionChannelsTogether;
+
+    RubberBand::RubberBandStretcher stretcher(
+        (size_t) cache->sourceSampleRate,
+        (size_t) srcChannels,
+        opts,
+        timeRatio,
+        1.0);
+
+    // Key-frame map from transient list (source frame -> stretched frame)
+    std::map<size_t, size_t> keyFrames;
+    keyFrames[0] = 0;
+
+    const double sr = cache->sourceSampleRate;
+    for (double t : metadata->transients)
+    {
+        if (t < 0.0)
+            continue;
+
+        const size_t srcFrame = (size_t) juce::jmax(0.0, std::floor(t * sr));
+        const size_t dstFrame = (size_t) std::llround((double) srcFrame * timeRatio);
+        keyFrames[srcFrame] = dstFrame;
+    }
+
+    const size_t lastSrc = (size_t) srcSamples;
+    keyFrames[lastSrc] = (size_t) std::llround((double) lastSrc * timeRatio);
+
+    stretcher.setTimeRatio(timeRatio);
+    stretcher.setKeyFrameMap(keyFrames);
+
+    std::array<const float*, 2> inPtrs {
+        data.getReadPointer(0),
+        (srcChannels > 1) ? data.getReadPointer(1) : data.getReadPointer(0)
+    };
+
+    stretcher.study(inPtrs.data(), (size_t) srcSamples, true);
+    stretcher.process(inPtrs.data(), (size_t) srcSamples, true);
+
+    const size_t pad = (size_t)(stretcher.getStartDelay() + stretcher.getLatency() + 128);
+    size_t estimatedOut = (size_t) std::ceil((double) srcSamples * timeRatio + (double) pad);
+    estimatedOut = juce::jmax<size_t>(estimatedOut, (size_t) srcSamples);
+
+    cache->buffer.setSize(srcChannels, (int) estimatedOut, false, true, true);
+
+    std::array<float*, 2> outPtrs {};
+    size_t written = 0;
+    int safety = 0;
+
+    while (stretcher.available() > 0 && safety < 4096)
+    {
+        const size_t available = stretcher.available();
+        if (available == 0)
+            break;
+
+        const size_t needed = written + available;
+        if ((size_t) cache->buffer.getNumSamples() < needed)
+            cache->buffer.setSize(srcChannels, (int) needed, true, true, true);
+
+        outPtrs[0] = cache->buffer.getWritePointer(0, (int) written);
+        outPtrs[1] = (srcChannels > 1) ? cache->buffer.getWritePointer(1, (int) written)
+                                       : outPtrs[0];
+
+        const size_t got = stretcher.retrieve(outPtrs.data(), available);
+        written += got;
+
+        if (got == 0)
+            break;
+
+        ++safety;
+    }
+
+    cache->buffer.setSize(srcChannels, (int) written, true, true, true);
+    return cache;
 }
 
 bool MetaSamplerSound::appliesToNote(int midiNoteNumber)
