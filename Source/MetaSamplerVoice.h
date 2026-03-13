@@ -31,6 +31,7 @@ public:
                          int numSamples) override;
     void setHostBpmParam(std::atomic<double>* p) { hostBpmParam = p; }
     void setWarpEnabledParam(std::atomic<bool>* p) { warpEnabledParam = p; }
+    void setHostBpmMovingParam(std::atomic<bool>* p) { hostBpmMovingParam = p; }
 
 private:
     MetaSamplerSound* currentSound = nullptr;
@@ -55,10 +56,12 @@ private:
 
     // Per-sample gain inside sustain zones (shortens tail as knob increases)
     float computeSustainGain(double timeSec, float amount);
+    float getNoteStartDeclickGain();
     float velocityGain = 1.0f;
     
     std::atomic<double>* hostBpmParam = nullptr;
     std::atomic<bool>* warpEnabledParam = nullptr;
+    std::atomic<bool>* hostBpmMovingParam = nullptr;
 
     bool isWarping = false;
     bool isRealtimeWarping = false;
@@ -73,5 +76,8 @@ private:
     juce::AudioBuffer<float> rbIn, rbOut;
     std::array<const float*, 2> rbInPtrs {};
     std::array<float*, 2> rbOutPtrs {};
+    // Source-domain timeline used for sustain shaping while running realtime warp.
     double warpedOutputTimeSec = 0.0;
+    int noteStartDeclickRemaining = 0;
+    static constexpr int noteStartDeclickSamples = 16;
 };

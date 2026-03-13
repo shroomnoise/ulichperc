@@ -2,6 +2,7 @@
 
 #include <juce_audio_basics/juce_audio_basics.h>
 #include <juce_audio_formats/juce_audio_formats.h>
+#include <future>
 #include <memory>
 #include <mutex>
 
@@ -40,12 +41,18 @@ public:
     bool isWarpEnabled() const noexcept { return warpEnabled; }
     double getOriginalBpm() const noexcept { return originalBpm; }
 
+    static double quantizeWarpBpm(double hostBpm) noexcept;
+
     std::shared_ptr<WarpedCache> getWarpedCache(double hostBpm) const;
+    void requestWarpedCacheBuild(double hostBpm) const;
+    bool isWarpCacheBuildInFlight() const;
+    void clearWarpedCache() const;
 
     // Transient metadata (used by MetaSamplerVoice)
     std::unique_ptr<SampleMetadata> metadata = nullptr;
 
 private:
+    void collectReadyWarpCache() const;
     std::unique_ptr<WarpedCache> renderWarpedCache(double hostBpm) const;
 
     juce::String name;
@@ -71,4 +78,6 @@ private:
     // Cache for pre-rendered warped audio (one BPM at a time)
     mutable std::shared_ptr<WarpedCache> warpCache;
     mutable std::mutex warpCacheMutex;
+    mutable double pendingWarpCacheBpm = 0.0;
+    mutable std::future<std::shared_ptr<WarpedCache>> warpCacheFuture;
 };

@@ -1,8 +1,13 @@
 #include "MetaSamplerSound.h"
 #include <rubberband/RubberBandStretcher.h>
 #include <array>
+#include <chrono>
 #include <cmath>
 #include <map>
+
+namespace
+{
+}
 
 MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
                                    juce::AudioFormatReader& source,
@@ -44,23 +49,116 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
         DBG("MetaSamplerSound: no metadata for " << wavResourceNameForMetadata);
 }
 
+double MetaSamplerSound::quantizeWarpBpm(double hostBpm) noexcept
+{
+    return juce::jmax(1.0, hostBpm);
+}
+
+void MetaSamplerSound::collectReadyWarpCache() const
+{
+    std::lock_guard<std::mutex> lock(warpCacheMutex);
+
+    if (!warpCacheFuture.valid())
+        return;
+
+    if (warpCacheFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+        return;
+
+    auto readyCache = warpCacheFuture.get();
+    const bool shouldPublish = (pendingWarpCacheBpm > 0.0);
+    pendingWarpCacheBpm = 0.0;
+
+    if (shouldPublish && readyCache)
+        warpCache = std::move(readyCache);
+}
+
 std::shared_ptr<MetaSamplerSound::WarpedCache> MetaSamplerSound::getWarpedCache(double hostBpm) const
 {
     if (!warpEnabled || metadata == nullptr)
         return nullptr;
 
-    const double bpm = juce::jmax(1.0, hostBpm);
+    const double bpm = quantizeWarpBpm(hostBpm);
+    collectReadyWarpCache();
 
     std::lock_guard<std::mutex> lock(warpCacheMutex);
 
-    if (warpCache && std::abs(warpCache->bpm - bpm) < 0.01)
+    if (warpCache && warpCache->bpm == bpm)
         return warpCache;
 
-    auto newCache = renderWarpedCache(bpm);
-    if (newCache)
-        warpCache = std::shared_ptr<WarpedCache>(std::move(newCache));
+    return nullptr;
+}
 
-    return warpCache;
+void MetaSamplerSound::requestWarpedCacheBuild(double hostBpm) const
+{
+    if (!warpEnabled || metadata == nullptr)
+        return;
+
+    const double bpm = quantizeWarpBpm(hostBpm);
+    collectReadyWarpCache();
+
+    std::lock_guard<std::mutex> lock(warpCacheMutex);
+
+    if (warpCache && warpCache->bpm == bpm)
+        return;
+
+    if (warpCacheFuture.valid())
+    {
+        if (pendingWarpCacheBpm == bpm)
+            return;
+
+        // Keep background work bounded to one build per sound.
+        if (warpCacheFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+        {
+            if (warpCache && warpCache->bpm != bpm)
+                warpCache.reset();
+            return;
+        }
+
+        auto readyCache = warpCacheFuture.get();
+        const bool shouldPublish = (pendingWarpCacheBpm > 0.0);
+        pendingWarpCacheBpm = 0.0;
+        if (shouldPublish && readyCache)
+            warpCache = std::move(readyCache);
+
+        if (warpCache && warpCache->bpm == bpm)
+            return;
+    }
+
+    // Drop stale cache proactively; voices keep their own shared_ptr copy.
+    warpCache.reset();
+    pendingWarpCacheBpm = bpm;
+
+    warpCacheFuture = std::async(std::launch::async, [this, bpm]() -> std::shared_ptr<WarpedCache>
+    {
+        auto builtCache = renderWarpedCache(bpm);
+        if (!builtCache)
+            return {};
+
+        builtCache->bpm = bpm;
+        return std::shared_ptr<WarpedCache>(std::move(builtCache));
+    });
+}
+
+bool MetaSamplerSound::isWarpCacheBuildInFlight() const
+{
+    if (!warpEnabled || metadata == nullptr)
+        return false;
+
+    collectReadyWarpCache();
+    std::lock_guard<std::mutex> lock(warpCacheMutex);
+
+    if (!warpCacheFuture.valid())
+        return false;
+
+    return warpCacheFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready;
+}
+
+void MetaSamplerSound::clearWarpedCache() const
+{
+    collectReadyWarpCache();
+    std::lock_guard<std::mutex> lock(warpCacheMutex);
+    pendingWarpCacheBpm = 0.0;
+    warpCache.reset();
 }
 
 std::unique_ptr<MetaSamplerSound::WarpedCache> MetaSamplerSound::renderWarpedCache(double hostBpm) const

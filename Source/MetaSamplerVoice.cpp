@@ -28,6 +28,7 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
     currentTransientIndex = 0;
     metadata = nullptr;
     warpedOutputTimeSec = 0.0;
+    noteStartDeclickRemaining = 0;
 
     juce::ignoreUnused(midiNoteNumber);
 
@@ -63,6 +64,8 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
         // Enable Complex-style warp only for marked sounds, unless host BPM matches original (≈153)
         const bool warpToggle = (warpEnabledParam != nullptr)
                                 && warpEnabledParam->load(std::memory_order_relaxed);
+        const bool bpmIsMoving = (hostBpmMovingParam != nullptr)
+                                 && hostBpmMovingParam->load(std::memory_order_relaxed);
         const double hostBpm = (hostBpmParam != nullptr)
                                  ? juce::jmax(1.0, hostBpmParam->load(std::memory_order_relaxed))
                                  : 0.0;
@@ -73,9 +76,15 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
         isRealtimeWarping = false;
         usingWarpCache = false;
 
+        if (isWarping && bpmIsMoving)
+            noteStartDeclickRemaining = noteStartDeclickSamples;
+
         if (isWarping && metadata != nullptr && hostBpmParam != nullptr)
         {
-            activeWarpCache = currentSound->getWarpedCache(hostBpm);
+            currentSound->requestWarpedCacheBuild(hostBpm);
+            if (!bpmIsMoving)
+                activeWarpCache = currentSound->getWarpedCache(hostBpm);
+
             if (activeWarpCache)
             {
                 usingWarpCache = true;
@@ -161,6 +170,7 @@ void MetaSamplerVoice::stopNote(float /*velocity*/, bool allowTailOff)
         rbSrcPos = 0;
         currentTimeRatio = 1.0;
         if (rb) rb->reset();
+        noteStartDeclickRemaining = 0;
     }
 }
 
@@ -176,6 +186,74 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
 
     if (activeBuffer == nullptr)
         activeBuffer = &currentSound->getAudioData();
+
+    // If BPM automation starts after note-on, leave cache path and continue with realtime warp.
+    if (usingWarpCache && !isRealtimeWarping && hostBpmMovingParam != nullptr
+        && hostBpmMovingParam->load(std::memory_order_relaxed))
+    {
+        const double cacheRatio = (activeWarpCache != nullptr)
+                                    ? activeWarpCache->timeRatio
+                                    : juce::jmax(1e-9, currentTimeRatio);
+        const double cacheSr = juce::jmax(1e-9, activeSourceSampleRate);
+        const double warpedTimeSec = sourceSamplePosition / cacheSr;
+        const double sourceTimeSec = warpedTimeSec / juce::jmax(1e-9, cacheRatio);
+
+        const auto& originalData = currentSound->getAudioData();
+        const int originalNumSamples = originalData.getNumSamples();
+        if (originalNumSamples > 0)
+        {
+            const double sourceSr = juce::jmax(1.0, currentSound->getSourceSampleRate());
+            const int startSrc = juce::jlimit(0, juce::jmax(0, originalNumSamples - 1),
+                                              (int) std::floor(sourceTimeSec * sourceSr));
+            const double playbackSR = juce::jmax(1.0, getSampleRate());
+            const int chans = juce::jlimit(1, 2, originalData.getNumChannels());
+
+            const bool rebuildRb = (!rb)
+                                   || rbSampleRate != (size_t)playbackSR
+                                   || rbChannels   != chans;
+
+            if (rebuildRb)
+            {
+                const auto rbOpts =
+                    RubberBand::RubberBandStretcher::OptionProcessRealTime
+                  | RubberBand::RubberBandStretcher::OptionThreadingNever
+                  | RubberBand::RubberBandStretcher::OptionTransientsCrisp
+                  | RubberBand::RubberBandStretcher::OptionDetectorPercussive
+                  | RubberBand::RubberBandStretcher::OptionWindowShort
+                  | RubberBand::RubberBandStretcher::OptionChannelsTogether;
+
+                rb = std::make_unique<RubberBand::RubberBandStretcher>(
+                    (size_t)playbackSR,
+                    (size_t)chans,
+                    rbOpts
+                );
+                rbSampleRate = (size_t)playbackSR;
+                rbChannels   = chans;
+            }
+
+            rb->reset();
+            const double hostBpm = (hostBpmParam != nullptr)
+                                     ? juce::jmax(1.0, hostBpmParam->load(std::memory_order_relaxed))
+                                     : currentSound->getOriginalBpm();
+            currentTimeRatio = currentSound->getOriginalBpm() / hostBpm;
+            rb->setTimeRatio(currentTimeRatio);
+
+            const int initial = 4096;
+            rbIn.setSize (chans, initial, false, false, true);
+            rbOut.setSize(chans, initial, false, false, true);
+
+            activeWarpCache.reset();
+            activeBuffer = &originalData;
+            activeSourceSampleRate = sourceSr;
+            sourceSamplePosition = (double)startSrc;
+            rbSrcPos = startSrc;
+            rbEnded = false;
+            warpedOutputTimeSec = sourceTimeSec;
+            usingWarpCache = false;
+            isRealtimeWarping = true;
+            noteStartDeclickRemaining = noteStartDeclickSamples;
+        }
+    }
 
     const auto& data = *activeBuffer;
     const int sourceNumSamples = data.getNumSamples();
@@ -212,7 +290,12 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             rbOut.setSize(chans, numSamples, false, false, true);
         }
 
-        // NOTE: sustain-shortening disabled in warp mode (source time != output time)
+        float sustainAmount = sustainAmountParam != nullptr ? sustainAmountParam->load() : 0.0f;
+        sustainAmount = juce::jlimit(0.0f, 1.0f, sustainAmount);
+        const bool doSustainShorten = (metadata != nullptr && sustainAmount > 0.0f);
+        const double playbackSR = juce::jmax(1.0, getSampleRate());
+        const double sourceStepSec = (1.0 / playbackSR) / juce::jmax(1e-9, currentTimeRatio);
+
         int produced = 0;
 
         while (produced < numSamples)
@@ -319,8 +402,19 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                 const float inL = rbOut.getSample(0, i);
                 const float inR = (outNumChans > 1) ? rbOut.getSample(juce::jmin(1, chans - 1), i) : inL;
 
-                const float sampleL = inL * g;
-                const float sampleR = inR * g;
+                float sampleL = inL * g;
+                float sampleR = inR * g;
+
+                if (doSustainShorten)
+                {
+                    const float sustainGain = computeSustainGain(warpedOutputTimeSec, sustainAmount);
+                    sampleL *= sustainGain;
+                    sampleR *= sustainGain;
+                }
+
+                const float declick = getNoteStartDeclickGain();
+                sampleL *= declick;
+                sampleR *= declick;
 
                 outputBuffer.addSample(0, startSample + produced + i, sampleL);
                 if (outNumChans > 1)
@@ -328,6 +422,9 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
 
                 for (int ch = 2; ch < outNumChans; ++ch)
                     outputBuffer.addSample(ch, startSample + produced + i, 0.5f * (sampleL + sampleR));
+
+                // Track source-domain timeline for sustain shaping in realtime warp mode.
+                warpedOutputTimeSec += sourceStepSec;
             }
 
             produced += toGet;
@@ -403,6 +500,10 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                 sampleR *= sustainGain;
             }
 
+            const float declick = getNoteStartDeclickGain();
+            sampleL *= declick;
+            sampleR *= declick;
+
             out0[i] += sampleL;
             out1[i] += sampleR;
 
@@ -470,6 +571,10 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             sampleR *= sustainGain;
         }
 
+        const float declick = getNoteStartDeclickGain();
+        sampleL *= declick;
+        sampleR *= declick;
+
         for (int ch = 0; ch < outNumChans; ++ch)
         {
             const float v = (ch == 0 ? sampleL
@@ -480,6 +585,17 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
 
         sourceSamplePosition += pitchRatio;
     }
+}
+
+float MetaSamplerVoice::getNoteStartDeclickGain()
+{
+    if (noteStartDeclickRemaining <= 0)
+        return 1.0f;
+
+    const int progressed = noteStartDeclickSamples - noteStartDeclickRemaining + 1;
+    const float gain = (float) progressed / (float) noteStartDeclickSamples;
+    --noteStartDeclickRemaining;
+    return juce::jlimit(0.0f, 1.0f, gain);
 }
 
 float MetaSamplerVoice::computeSustainGain(double timeSec, float amount)

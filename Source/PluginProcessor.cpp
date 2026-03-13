@@ -4,6 +4,7 @@
 #include "BinaryData.h"
 #include "MetaSamplerVoice.h"
 #include "MetaSamplerSound.h"
+#include <cmath>
 
 //==============================================================================
 
@@ -31,6 +32,7 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
         v->setSustainParam(sustainShortenParam);
         v->setWarpEnabledParam(&warpEnabledAtomic);
         v->setHostBpmParam(&hostBpmAtomic);
+        v->setHostBpmMovingParam(&hostBpmMovingAtomic);
         sampler.addVoice(v);
     }
     DBG("Added " << sampler.getNumVoices() << " sampler voices");
@@ -125,6 +127,71 @@ void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
     {
         v->setHostBpmParam(&hostBpmAtomic);
         v->setWarpEnabledParam(&warpEnabledAtomic);
+        v->setHostBpmMovingParam(&hostBpmMovingAtomic);
+    }
+}
+
+bool AudioPluginAudioProcessor::requestNextWarpCacheForBpm(double hostBpm, int& soundIndex) const
+{
+    const double bpm = juce::jmax(1.0, hostBpm);
+    const int totalSounds = sampler.getNumSounds();
+
+    while (soundIndex < totalSounds)
+    {
+        auto soundPtr = sampler.getSound(soundIndex++);
+        auto* sound = dynamic_cast<MetaSamplerSound*>(soundPtr.get());
+        if (sound == nullptr || !sound->isWarpEnabled())
+            continue;
+
+        sound->requestWarpedCacheBuild(bpm);
+        return true;
+    }
+
+    return false;
+}
+
+bool AudioPluginAudioProcessor::areWarpCachesReadyForBpm(double hostBpm) const
+{
+    const double bpm = juce::jmax(1.0, hostBpm);
+
+    for (int i = 0; i < sampler.getNumSounds(); ++i)
+    {
+        auto soundPtr = sampler.getSound(i);
+        auto* sound = dynamic_cast<MetaSamplerSound*>(soundPtr.get());
+        if (sound == nullptr || !sound->isWarpEnabled())
+            continue;
+
+        if (!sound->getWarpedCache(bpm))
+            return false;
+    }
+
+    return true;
+}
+
+int AudioPluginAudioProcessor::countWarpCacheBuildsInFlight() const
+{
+    int count = 0;
+    for (int i = 0; i < sampler.getNumSounds(); ++i)
+    {
+        auto soundPtr = sampler.getSound(i);
+        auto* sound = dynamic_cast<MetaSamplerSound*>(soundPtr.get());
+        if (sound == nullptr || !sound->isWarpEnabled())
+            continue;
+
+        if (sound->isWarpCacheBuildInFlight())
+            ++count;
+    }
+
+    return count;
+}
+
+void AudioPluginAudioProcessor::clearWarpCaches()
+{
+    for (int i = 0; i < sampler.getNumSounds(); ++i)
+    {
+        auto soundPtr = sampler.getSound(i);
+        if (auto* sound = dynamic_cast<MetaSamplerSound*>(soundPtr.get()))
+            sound->clearWarpedCache();
     }
 }
 
@@ -153,13 +220,30 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                                              juce::MidiBuffer& midiMessages)
 {
     juce::ScopedNoDenormals noDenormals;
+    const double nowSec = juce::Time::getMillisecondCounterHiRes() * 0.001;
 
     if (auto* ph = getPlayHead())
     {
         juce::AudioPlayHead::CurrentPositionInfo pos;
-        if (ph->getCurrentPosition(pos) && pos.bpm > 0.0)
-            hostBpmAtomic.store(pos.bpm, std::memory_order_relaxed);
+        if (ph->getCurrentPosition(pos))
+        {
+            if (pos.bpm > 0.0)
+                hostBpmAtomic.store(pos.bpm, std::memory_order_relaxed);
+        }
     }
+
+    const double hostBpmNow = juce::jmax(1.0, hostBpmAtomic.load(std::memory_order_relaxed));
+    const bool hostBpmMoved = (!hasHostBpmForMotion)
+                           || (std::abs(hostBpmNow - lastHostBpmForMotion) > hostBpmMotionEpsilon);
+    if (hostBpmMoved)
+    {
+        hasHostBpmForMotion = true;
+        lastHostBpmForMotion = hostBpmNow;
+        lastHostBpmChangeSec = nowSec;
+    }
+    hostBpmMovingAtomic.store(hasHostBpmForMotion
+                               && ((nowSec - lastHostBpmChangeSec) <= hostBpmMotionHoldSec),
+                              std::memory_order_relaxed);
 
     buffer.clear();
 
@@ -167,6 +251,81 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
     if (warpParamRaw != nullptr)
         warpEnabledAtomic.store(warpParamRaw->load(std::memory_order_relaxed) >= 0.5f,
                                 std::memory_order_relaxed);
+
+    const bool warpEnabledNow = warpEnabledAtomic.load(std::memory_order_relaxed);
+    const bool warpJustDisabled = (!warpEnabledNow && lastWarpEnabled);
+
+    if (warpJustDisabled)
+    {
+        clearWarpCaches();
+        hostBpmMovingAtomic.store(false, std::memory_order_relaxed);
+        hasHostBpmForMotion = false;
+        lastHostBpmForMotion = 0.0;
+        lastHostBpmChangeSec = 0.0;
+        hasObservedWarpBpm = false;
+        lastObservedWarpBpm = 0.0;
+        hasPendingWarpPrewarm = false;
+        pendingWarpPrewarmBpm = 0.0;
+        warpBpmDebounceUntilSec = 0.0;
+        nextWarpPrewarmRetrySec = 0.0;
+        pendingWarpPrewarmSoundIndex = 0;
+    }
+
+    if (warpEnabledNow)
+    {
+        const double hostBpm = juce::jmax(1.0, hostBpmAtomic.load(std::memory_order_relaxed));
+        const double targetBpm = MetaSamplerSound::quantizeWarpBpm(hostBpm);
+        const bool bpmChanged = (!hasObservedWarpBpm)
+                             || (std::abs(targetBpm - lastObservedWarpBpm) > warpBpmChangeEpsilon);
+
+        if (bpmChanged)
+        {
+            clearWarpCaches();
+            hasObservedWarpBpm = true;
+            lastObservedWarpBpm = targetBpm;
+            pendingWarpPrewarmBpm = targetBpm;
+            hasPendingWarpPrewarm = true;
+            warpBpmDebounceUntilSec = nowSec + warpPrewarmDebounceSec;
+            nextWarpPrewarmRetrySec = warpBpmDebounceUntilSec;
+            pendingWarpPrewarmSoundIndex = 0;
+        }
+
+        if (hasPendingWarpPrewarm
+            && nowSec >= warpBpmDebounceUntilSec
+            && nowSec >= nextWarpPrewarmRetrySec)
+        {
+            const int totalSounds = sampler.getNumSounds();
+            if (pendingWarpPrewarmSoundIndex < totalSounds)
+            {
+                const int inFlight = countWarpCacheBuildsInFlight();
+                if (inFlight < warpPrewarmMaxInFlightBuilds)
+                {
+                    int idx = pendingWarpPrewarmSoundIndex;
+                    if (requestNextWarpCacheForBpm(pendingWarpPrewarmBpm, idx))
+                        pendingWarpPrewarmSoundIndex = idx;
+                    else
+                        pendingWarpPrewarmSoundIndex = totalSounds;
+                }
+
+                nextWarpPrewarmRetrySec = nowSec + warpPrewarmRetryIntervalSec;
+            }
+            else
+            {
+                if (areWarpCachesReadyForBpm(pendingWarpPrewarmBpm))
+                {
+                    hasPendingWarpPrewarm = false;
+                    nextWarpPrewarmRetrySec = 0.0;
+                }
+                else
+                {
+                    nextWarpPrewarmRetrySec = nowSec + warpPrewarmRetryIntervalSec;
+                }
+            }
+        }
+    }
+
+    lastWarpEnabled = warpEnabledNow;
+
     sampler.renderNextBlock(buffer, midiMessages, 0, buffer.getNumSamples());
 
     const int numChannels = buffer.getNumChannels();
