@@ -1,11 +1,3 @@
 {
-  "version": 3,
-  "sampleRate": 48000,
-  "lengthSec": 0.5,
-  "transients": [
-    0.014829931972789115,
-    0.10448979591836735,
-    0.19736961451247165,
-    0.313469387755102
-  ]
+  "ignoreTransientShaper": true,
 }

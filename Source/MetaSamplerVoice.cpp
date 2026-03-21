@@ -34,7 +34,24 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
 
     {
         const float v = juce::jlimit(0.0f, 1.0f, velocity);
-        velocityGain = std::sqrt(v);
+        const int midiVelocity = juce::jlimit(1, 127, (int) std::lround(v * 127.0f));
+
+        const int groupCount = (currentSound != nullptr)
+                                   ? juce::jmax(1, currentSound->getVelocityGroupCount())
+                                   : 1;
+        int groupMin = (currentSound != nullptr) ? currentSound->getVelocityMin() : 1;
+        int groupMax = (currentSound != nullptr) ? currentSound->getVelocityMax() : 127;
+        if (groupMax < groupMin)
+            groupMax = groupMin;
+
+        const float t = (groupMax > groupMin)
+                            ? juce::jlimit(0.0f, 1.0f,
+                                           (float) (midiVelocity - groupMin) / (float) (groupMax - groupMin))
+                            : 0.0f;
+
+        const float groupSpanDb = 20.0f / (float) groupCount;
+        const float gainDb = (-0.5f * groupSpanDb) + (t * groupSpanDb);
+        velocityGain = juce::Decibels::decibelsToGain(gainDb);
     }
 
     isWarping = false;
@@ -151,6 +168,9 @@ void MetaSamplerVoice::stopNote(float /*velocity*/, bool allowTailOff)
 {
     if (allowTailOff)
     {
+        // If sample has no transient JSON, treat it as one-shot and ignore note-off.
+        if (metadata != nullptr && !metadata->hasTransientJson)
+            return;
         adsr.noteOff();
     }
     else
@@ -292,7 +312,9 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
 
         float sustainAmount = sustainAmountParam != nullptr ? sustainAmountParam->load() : 0.0f;
         sustainAmount = juce::jlimit(0.0f, 1.0f, sustainAmount);
-        const bool doSustainShorten = (metadata != nullptr && sustainAmount > 0.0f);
+        const bool doSustainShorten = (metadata != nullptr
+                                       && !metadata->ignoreTransientShaper
+                                       && sustainAmount > 0.0f);
         const double playbackSR = juce::jmax(1.0, getSampleRate());
         const double sourceStepSec = (1.0 / playbackSR) / juce::jmax(1e-9, currentTimeRatio);
 
@@ -444,7 +466,9 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     float* out0 = (outNumChans > 0) ? outputBuffer.getWritePointer(0, startSample) : nullptr;
     float* out1 = (outNumChans > 1) ? outputBuffer.getWritePointer(1, startSample) : nullptr;
 
-    const bool doSustainShorten = (metadata != nullptr && sustainAmount > 0.0f);
+    const bool doSustainShorten = (metadata != nullptr
+                                   && !metadata->ignoreTransientShaper
+                                   && sustainAmount > 0.0f);
 
     if (outNumChans >= 2 && out0 != nullptr && out1 != nullptr)
     {
@@ -600,7 +624,7 @@ float MetaSamplerVoice::getNoteStartDeclickGain()
 
 float MetaSamplerVoice::computeSustainGain(double timeSec, float amount)
 {
-    if (metadata == nullptr || metadata->transients.empty() || amount <= 0.0f)
+    if (metadata == nullptr || metadata->ignoreTransientShaper || metadata->transients.empty() || amount <= 0.0f)
         return 1.0f;
 
     const auto& ts = metadata->transients;

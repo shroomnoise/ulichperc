@@ -16,7 +16,9 @@ struct SampleMetadata
 {
     double sampleRate = 48000.0;
     double lengthSec  = 0.0;
+    bool hasTransientJson = false;
     bool warp = false;
+    bool ignoreTransientShaper = false;
     std::vector<double> transients;
 
     bool hasTransients() const noexcept { return !transients.empty(); }

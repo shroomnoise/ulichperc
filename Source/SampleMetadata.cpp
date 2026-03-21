@@ -2,6 +2,21 @@
 
 std::unique_ptr<SampleMetadata> loadMetadataForResource(const juce::String& wavResourceName)
 {
+    auto makeFallbackMetadata = [&wavResourceName](bool hasJsonFile, const juce::String& reason)
+    {
+        auto fallback = std::make_unique<SampleMetadata>();
+        fallback->sampleRate = 48000.0;
+        fallback->lengthSec = 0.0;
+        fallback->hasTransientJson = hasJsonFile;
+        fallback->warp = false;
+        fallback->ignoreTransientShaper = false;
+        fallback->transients.push_back(0.01);
+        DBG("  Using fallback metadata for " << wavResourceName
+            << ": " << reason
+            << " (sampleRate=48000, transient[0]=0.01)");
+        return fallback;
+    };
+
     // Example:
     //   wavResourceName     = "_33_wav"
     //   we want JSON name = "_33_transients_json"
@@ -19,8 +34,7 @@ std::unique_ptr<SampleMetadata> loadMetadataForResource(const juce::String& wavR
     const void* data = BinaryData::getNamedResource(jsonResName.toRawUTF8(), size);
     if (data == nullptr || size <= 0)
     {
-        DBG("  No BinaryData resource found for " << jsonResName);
-        return nullptr;
+        return makeFallbackMetadata(false, "no JSON resource " + jsonResName);
     }
 
     juce::String jsonText = juce::String::fromUTF8(static_cast<const char*>(data), size);
@@ -28,25 +42,26 @@ std::unique_ptr<SampleMetadata> loadMetadataForResource(const juce::String& wavR
     auto jsonVar = juce::JSON::parse(jsonText);
     if (jsonVar.isVoid() || !jsonVar.isObject())
     {
-        DBG("  JSON parse failed for " << jsonResName);
-        return nullptr;
+        return makeFallbackMetadata(true, "JSON parse failed for " + jsonResName);
     }
 
     auto& obj = *jsonVar.getDynamicObject();
     auto meta = std::make_unique<SampleMetadata>();
+    meta->hasTransientJson = true;
 
     // JUCE 7 style: no default in getProperty
-    meta->sampleRate = obj.hasProperty("sampleRate")
-                         ? (double) obj.getProperty("sampleRate")
-                         : 48000.0;
-
-    meta->lengthSec = obj.hasProperty("lengthSec")
-                        ? (double) obj.getProperty("lengthSec")
-                        : 0.0;
+    if (obj.hasProperty("sampleRate"))
+        meta->sampleRate = (double) obj.getProperty("sampleRate");
+    if (meta->sampleRate <= 0.0)
+        meta->sampleRate = 48000.0;
 
     meta->warp = obj.hasProperty("warp")
                    ? (bool) obj.getProperty("warp")
                    : false;
+
+    meta->ignoreTransientShaper = obj.hasProperty("ignoreTransientShaper")
+                                      ? (bool) obj.getProperty("ignoreTransientShaper")
+                                      : false;
 
     auto tv = obj.getProperty("transients");
     if (tv.isArray())
@@ -59,11 +74,12 @@ std::unique_ptr<SampleMetadata> loadMetadataForResource(const juce::String& wavR
 
     if (!meta->hasTransients())
     {
-        DBG("  Parsed JSON but no valid transients in " << jsonResName);
-        return nullptr;
+        meta->transients.push_back(0.01);
+        DBG("  JSON had no valid transients, inserted default transient 0.01 for " << jsonResName);
     }
 
     DBG("  Loaded metadata OK for " << jsonResName
-        << " (zones=" << meta->transients.size() << ")");
+        << " (transients=" << meta->transients.size()
+        << ", ignoreTransientShaper=" << (meta->ignoreTransientShaper ? "true" : "false") << ")");
     return meta;
 }

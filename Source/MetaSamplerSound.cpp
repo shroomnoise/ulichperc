@@ -41,17 +41,45 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
 
     // load transient metadata from BinaryData (if present)
     metadata = loadMetadataForResource(wavResourceNameForMetadata);
-    warpEnabled = (metadata != nullptr && metadata->warp);
+    if (metadata == nullptr)
+        metadata = std::make_unique<SampleMetadata>();
 
-    if (metadata)
-        DBG("MetaSamplerSound: loaded transient metadata for " << wavResourceNameForMetadata);
-    else
-        DBG("MetaSamplerSound: no metadata for " << wavResourceNameForMetadata);
+    if (metadata->sampleRate <= 0.0)
+        metadata->sampleRate = 48000.0;
+
+    if (!metadata->hasTransients())
+        metadata->transients.push_back(0.01);
+
+    // Always trust measured audio duration over JSON.
+    metadata->lengthSec = lengthInSeconds;
+
+    warpEnabled = metadata->warp;
+
+    DBG("MetaSamplerSound: metadata prepared for " << wavResourceNameForMetadata
+        << " (hasTransientJson=" << (metadata->hasTransientJson ? "true" : "false")
+        << ", sampleRate=" << metadata->sampleRate
+        << ", lengthSec=" << metadata->lengthSec
+        << ", transients=" << metadata->transients.size()
+        << ", ignoreTransientShaper=" << (metadata->ignoreTransientShaper ? "true" : "false")
+        << ", warp=" << (metadata->warp ? "true" : "false") << ")");
 }
 
 double MetaSamplerSound::quantizeWarpBpm(double hostBpm) noexcept
 {
     return juce::jmax(1.0, hostBpm);
+}
+
+void MetaSamplerSound::setVelocityLayerInfo(int groupIndex,
+                                            int groupCount,
+                                            int minVelocity,
+                                            int maxVelocity) noexcept
+{
+    velocityGroupCount = juce::jmax(1, groupCount);
+    velocityGroupIndex = juce::jlimit(1, velocityGroupCount, groupIndex);
+    velocityMin = juce::jlimit(1, 127, minVelocity);
+    velocityMax = juce::jlimit(1, 127, maxVelocity);
+    if (velocityMax < velocityMin)
+        velocityMax = velocityMin;
 }
 
 void MetaSamplerSound::collectReadyWarpCache() const

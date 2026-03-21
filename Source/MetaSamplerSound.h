@@ -36,6 +36,14 @@ public:
     // Audio data access
     const juce::AudioBuffer<float>& getAudioData() const noexcept { return data; }
     double getSourceSampleRate() const noexcept { return sourceSampleRate; }
+    void setVelocityLayerInfo(int groupIndex,
+                              int groupCount,
+                              int minVelocity,
+                              int maxVelocity) noexcept;
+    int getVelocityGroupIndex() const noexcept { return velocityGroupIndex; }
+    int getVelocityGroupCount() const noexcept { return velocityGroupCount; }
+    int getVelocityMin() const noexcept { return velocityMin; }
+    int getVelocityMax() const noexcept { return velocityMax; }
 
     // Warp info
     bool isWarpEnabled() const noexcept { return warpEnabled; }
@@ -74,6 +82,12 @@ private:
     // Warp configuration
     bool warpEnabled = false;
     double originalBpm = 153.0;
+
+    // Velocity layer metadata for note-on gain shaping
+    int velocityGroupIndex = 1;
+    int velocityGroupCount = 1;
+    int velocityMin = 1;
+    int velocityMax = 127;
 
     // Cache for pre-rendered warped audio (one BPM at a time)
     mutable std::shared_ptr<WarpedCache> warpCache;

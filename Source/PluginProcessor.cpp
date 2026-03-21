@@ -8,6 +8,80 @@
 
 //==============================================================================
 
+namespace
+{
+    struct ParsedSampleName
+    {
+        int noteIndex = 0;
+        int velocityGroupIndex = 1;
+        int variationIndex = 1;
+    };
+
+    bool parseSampleName(const juce::String& binaryResourceBaseName, ParsedSampleName& out)
+    {
+        juce::String tokenName = binaryResourceBaseName;
+        if (tokenName.startsWithIgnoreCase("samples_"))
+            tokenName = tokenName.substring(8);
+
+        juce::StringArray tokens;
+        tokens.addTokens(tokenName, "_", "");
+        tokens.removeEmptyStrings();
+
+        if (tokens.isEmpty() || !tokens[0].containsOnly("0123456789"))
+            return false;
+
+        const int noteIdx = tokens[0].getIntValue();
+        if (noteIdx <= 0)
+            return false;
+
+        bool hasVelocityToken = false;
+        bool hasVariationToken = false;
+        int velocityGroup = 1;
+        int variation = 1;
+
+        for (int i = 1; i < tokens.size(); ++i)
+        {
+            const auto t = tokens[i].trim();
+            if (t.length() < 2)
+                return false;
+
+            const juce::juce_wchar prefix = juce::CharacterFunctions::toLowerCase(t[0]);
+            const auto numericPart = t.substring(1);
+
+            if (!numericPart.containsOnly("0123456789"))
+                return false;
+
+            const int value = numericPart.getIntValue();
+            if (value <= 0)
+                return false;
+
+            if (prefix == 'v')
+            {
+                if (hasVelocityToken)
+                    return false;
+                hasVelocityToken = true;
+                velocityGroup = value;
+            }
+            else if (prefix == 'n')
+            {
+                if (hasVariationToken)
+                    return false;
+                hasVariationToken = true;
+                variation = value;
+            }
+            else
+            {
+                return false;
+            }
+        }
+
+        out.noteIndex = noteIdx;
+        out.velocityGroupIndex = velocityGroup;
+        out.variationIndex = variation;
+        return true;
+    }
+}
+
 AudioPluginAudioProcessor::AudioPluginAudioProcessor()
     : AudioProcessor (BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, "params", {
@@ -78,19 +152,26 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
             continue;
         }
 
-        // Strip "_wav" and get trailing int:
-        // "samples_11_wav" -> "samples_11" -> 11
+        // Strip "_wav": "samples_1_v2_n3_wav" -> "samples_1_v2_n3"
         juce::String cleanName = name.upToLastOccurrenceOf("_wav", false, false);
-        int fileNumber = cleanName.getTrailingIntValue();
-
-        if (fileNumber <= 0)
+        ParsedSampleName parsed;
+        if (!parseSampleName(cleanName, parsed))
         {
-            DBG("  Skipped: couldn't extract valid number from '" << cleanName << "'");
+            DBG("  Skipped: invalid sample name pattern '" << cleanName << "' (expected note[_vX][_nY])");
             continue;
         }
 
-        int midiNote = 60 + fileNumber - 1; // 1 -> 60 (C4), 2 -> 61, etc.
-        DBG("  Parsed fileNumber=" << fileNumber << ", midiNote=" << midiNote);
+        const int midiNote = 60 + parsed.noteIndex - 1; // 1 -> 60 (C4), 2 -> 61, etc.
+        if (midiNote < 0 || midiNote > 127)
+        {
+            DBG("  Skipped: note out of MIDI range, noteIndex=" << parsed.noteIndex << ", midiNote=" << midiNote);
+            continue;
+        }
+
+        DBG("  Parsed noteIndex=" << parsed.noteIndex
+            << ", vGroup=" << parsed.velocityGroupIndex
+            << ", variation=" << parsed.variationIndex
+            << ", midiNote=" << midiNote);
 
         auto* sound = new MetaSamplerSound(
             cleanName,
@@ -105,8 +186,14 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
         );
 
         sampler.addSound(sound);
+        sampler.registerLayeredSound(sound,
+                                     midiNote,
+                                     parsed.velocityGroupIndex,
+                                     parsed.variationIndex);
         DBG("  Added MetaSamplerSound for " << cleanName);
     }
+
+    sampler.finalizeLayerMappings();
 
     DBG("Total sampler sounds loaded: " << sampler.getNumSounds());
     DBG("=== Constructor done ===");

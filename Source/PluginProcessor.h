@@ -2,6 +2,7 @@
 
 #include <juce_audio_processors/juce_audio_processors.h>
 #include <juce_audio_formats/juce_audio_formats.h>
+#include "LayeredSynthesiser.h"
 
 //==============================================================================
 class AudioPluginAudioProcessor final : public juce::AudioProcessor
@@ -59,7 +60,7 @@ private:
     void clearWarpCaches();
 
     //==============================================================================
-    juce::Synthesiser sampler;
+    LayeredSynthesiser sampler;
     std::unique_ptr<juce::AudioFormatReader> reader;
     std::atomic<double> hostBpmAtomic { 153.0 };
     std::atomic<bool> warpEnabledAtomic { true };

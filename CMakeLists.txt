@@ -36,6 +36,8 @@ set(SourceFiles
         Source/CustomLookAndFeel.h
         Source/SampleMetadata.h
         Source/SampleMetadata.cpp
+        Source/LayeredSynthesiser.h
+        Source/LayeredSynthesiser.cpp
         Source/MetaSamplerSound.h
         Source/MetaSamplerSound.cpp
         Source/MetaSamplerVoice.h
