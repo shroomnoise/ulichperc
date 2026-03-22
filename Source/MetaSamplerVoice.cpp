@@ -51,7 +51,7 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
 
         const float groupSpanDb = 20.0f / (float) groupCount;
         const float gainDb = (-0.5f * groupSpanDb) + (t * groupSpanDb);
-        velocityGain = juce::Decibels::decibelsToGain(gainDb);
+        velocityGain = juce::Decibels::decibelsToGain(gainDb + 4.0f);
     }
 
     isWarping = false;
@@ -279,6 +279,7 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     const int sourceNumSamples = data.getNumSamples();
     const int sourceNumChans   = data.getNumChannels();
     const int outNumChans      = outputBuffer.getNumChannels();
+    const bool loopWhileHeld = (metadata != nullptr && metadata->loop && isKeyDown());
 
     if (sourceNumSamples <= 0 || sourceNumChans <= 0 || !adsr.isActive())
     {
@@ -332,6 +333,16 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                     const int remaining    = sourceNumSamples - rbSrcPos;
                     if (remaining <= 0)
                     {
+                        if (loopWhileHeld)
+                        {
+                            rb->reset();
+                            rb->setTimeRatio(currentTimeRatio);
+                            rbSrcPos = 0;
+                            rbEnded = false;
+                            warpedOutputTimeSec = 0.0;
+                            currentTransientIndex = 0;
+                            continue;
+                        }
                         rb->process(nullptr, 0, true);
                         rbEnded = true;
                         adsr.noteOff();
@@ -348,7 +359,7 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                         rbOut.setSize(chans, juce::jmax(requiredInt, numSamples), false, false, true);
                     }
 
-                    const bool isLastBlock = (remaining <= requiredInt);
+                    const bool isLastBlock = (!loopWhileHeld && (remaining <= requiredInt));
                     const int toFeed       = juce::jmin(requiredInt, remaining);
 
                     if (toFeed > 0)
@@ -373,6 +384,16 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                     }
 
                     // End of input: tell Rubber Band, release ADSR (NO LOOPING)
+                    if (loopWhileHeld)
+                    {
+                        rb->reset();
+                        rb->setTimeRatio(currentTimeRatio);
+                        rbSrcPos = 0;
+                        rbEnded = false;
+                        warpedOutputTimeSec = 0.0;
+                        currentTransientIndex = 0;
+                        continue;
+                    }
                     rb->process(nullptr, 0, true);
                     rbEnded = true;
                     adsr.noteOff();
@@ -476,15 +497,24 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
         {
             if (sourceSamplePosition >= (double)sourceNumSamples)
             {
-                adsr.noteOff();
-                if (!adsr.isActive())
+                if (loopWhileHeld)
                 {
-                    clearCurrentNote();
-                    currentSound = nullptr;
-                    activeBuffer = nullptr;
-                    activeWarpCache.reset();
-                    metadata = nullptr;
-                    break;
+                    while (sourceSamplePosition >= (double)sourceNumSamples)
+                        sourceSamplePosition -= (double)sourceNumSamples;
+                    currentTransientIndex = 0;
+                }
+                else
+                {
+                    adsr.noteOff();
+                    if (!adsr.isActive())
+                    {
+                        clearCurrentNote();
+                        currentSound = nullptr;
+                        activeBuffer = nullptr;
+                        activeWarpCache.reset();
+                        metadata = nullptr;
+                        break;
+                    }
                 }
             }
 
@@ -547,15 +577,24 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     {
         if (sourceSamplePosition >= (double)sourceNumSamples)
         {
-            adsr.noteOff();
-            if (!adsr.isActive())
+            if (loopWhileHeld)
             {
-                clearCurrentNote();
-                currentSound = nullptr;
-                activeBuffer = nullptr;
-                activeWarpCache.reset();
-                metadata = nullptr;
-                break;
+                while (sourceSamplePosition >= (double)sourceNumSamples)
+                    sourceSamplePosition -= (double)sourceNumSamples;
+                currentTransientIndex = 0;
+            }
+            else
+            {
+                adsr.noteOff();
+                if (!adsr.isActive())
+                {
+                    clearCurrentNote();
+                    currentSound = nullptr;
+                    activeBuffer = nullptr;
+                    activeWarpCache.reset();
+                    metadata = nullptr;
+                    break;
+                }
             }
         }
 

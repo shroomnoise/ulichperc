@@ -161,7 +161,7 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
             continue;
         }
 
-        const int midiNote = 60 + parsed.noteIndex - 1; // 1 -> 60 (C4), 2 -> 61, etc.
+        const int midiNote = 48 + parsed.noteIndex - 1; // 1 -> MIDI 48 (C2 in many DAWs), 2 -> 49, etc.
         if (midiNote < 0 || midiNote > 127)
         {
             DBG("  Skipped: note out of MIDI range, noteIndex=" << parsed.noteIndex << ", midiNote=" << midiNote);

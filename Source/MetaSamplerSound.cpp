@@ -60,6 +60,7 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
         << ", sampleRate=" << metadata->sampleRate
         << ", lengthSec=" << metadata->lengthSec
         << ", transients=" << metadata->transients.size()
+        << ", loop=" << (metadata->loop ? "true" : "false")
         << ", ignoreTransientShaper=" << (metadata->ignoreTransientShaper ? "true" : "false")
         << ", warp=" << (metadata->warp ? "true" : "false") << ")");
 }

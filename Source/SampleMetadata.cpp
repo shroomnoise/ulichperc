@@ -9,6 +9,7 @@ std::unique_ptr<SampleMetadata> loadMetadataForResource(const juce::String& wavR
         fallback->lengthSec = 0.0;
         fallback->hasTransientJson = hasJsonFile;
         fallback->warp = false;
+        fallback->loop = false;
         fallback->ignoreTransientShaper = false;
         fallback->transients.push_back(0.01);
         DBG("  Using fallback metadata for " << wavResourceName
@@ -59,6 +60,10 @@ std::unique_ptr<SampleMetadata> loadMetadataForResource(const juce::String& wavR
                    ? (bool) obj.getProperty("warp")
                    : false;
 
+    meta->loop = obj.hasProperty("loop")
+                   ? (bool) obj.getProperty("loop")
+                   : false;
+
     meta->ignoreTransientShaper = obj.hasProperty("ignoreTransientShaper")
                                       ? (bool) obj.getProperty("ignoreTransientShaper")
                                       : false;
@@ -80,6 +85,7 @@ std::unique_ptr<SampleMetadata> loadMetadataForResource(const juce::String& wavR
 
     DBG("  Loaded metadata OK for " << jsonResName
         << " (transients=" << meta->transients.size()
+        << ", loop=" << (meta->loop ? "true" : "false")
         << ", ignoreTransientShaper=" << (meta->ignoreTransientShaper ? "true" : "false") << ")");
     return meta;
 }

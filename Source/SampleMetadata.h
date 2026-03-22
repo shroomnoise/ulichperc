@@ -18,6 +18,7 @@ struct SampleMetadata
     double lengthSec  = 0.0;
     bool hasTransientJson = false;
     bool warp = false;
+    bool loop = false;
     bool ignoreTransientShaper = false;
     std::vector<double> transients;
 
