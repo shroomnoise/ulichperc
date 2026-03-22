@@ -70,6 +70,22 @@ double MetaSamplerSound::quantizeWarpBpm(double hostBpm) noexcept
     return juce::jmax(1.0, hostBpm);
 }
 
+double MetaSamplerSound::warpBaseBpmForHost(double originalBpm, double hostBpm) noexcept
+{
+    const double safeOriginalBpm = juce::jmax(1.0, originalBpm);
+    const double safeHostBpm = juce::jmax(1.0, hostBpm);
+
+    // For very slow host tempos, switch to half-time anchor (153 -> 76.5)
+    // so loops speed up instead of stretching too far.
+    return (safeHostBpm <= 90.0) ? (safeOriginalBpm * 0.5) : safeOriginalBpm;
+}
+
+double MetaSamplerSound::warpTimeRatioForHost(double originalBpm, double hostBpm) noexcept
+{
+    const double safeHostBpm = juce::jmax(1.0, hostBpm);
+    return warpBaseBpmForHost(originalBpm, safeHostBpm) / safeHostBpm;
+}
+
 void MetaSamplerSound::setVelocityLayerInfo(int groupIndex,
                                             int groupCount,
                                             int minVelocity,
@@ -206,7 +222,7 @@ std::unique_ptr<MetaSamplerSound::WarpedCache> MetaSamplerSound::renderWarpedCac
     cache->sourceSampleRate = metadata->sampleRate > 0.0 ? metadata->sampleRate
                                                          : sourceSampleRate;
 
-    const double timeRatio = originalBpm / juce::jmax(1.0, hostBpm);
+    const double timeRatio = warpTimeRatioForHost(originalBpm, hostBpm);
     cache->timeRatio = timeRatio;
 
     const auto opts =

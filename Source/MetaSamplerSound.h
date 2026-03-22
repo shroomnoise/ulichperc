@@ -50,6 +50,8 @@ public:
     double getOriginalBpm() const noexcept { return originalBpm; }
 
     static double quantizeWarpBpm(double hostBpm) noexcept;
+    static double warpBaseBpmForHost(double originalBpm, double hostBpm) noexcept;
+    static double warpTimeRatioForHost(double originalBpm, double hostBpm) noexcept;
 
     std::shared_ptr<WarpedCache> getWarpedCache(double hostBpm) const;
     void requestWarpedCacheBuild(double hostBpm) const;

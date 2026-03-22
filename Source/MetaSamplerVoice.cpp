@@ -78,7 +78,8 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
         adsr.setSampleRate(playbackSR);
         adsr.noteOn();
 
-        // Enable Complex-style warp only for marked sounds, unless host BPM matches original (≈153)
+        // Enable Complex-style warp only for marked sounds, unless host BPM already matches
+        // the active warp base BPM (153 normally, 76.5 for host <= 90).
         const bool warpToggle = (warpEnabledParam != nullptr)
                                 && warpEnabledParam->load(std::memory_order_relaxed);
         const bool bpmIsMoving = (hostBpmMovingParam != nullptr)
@@ -86,8 +87,10 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
         const double hostBpm = (hostBpmParam != nullptr)
                                  ? juce::jmax(1.0, hostBpmParam->load(std::memory_order_relaxed))
                                  : 0.0;
-        const double bpmDiff = std::abs(hostBpm - currentSound->getOriginalBpm());
-        const bool nearOriginalBpm = (hostBpmParam != nullptr && bpmDiff < 0.1); // treat ~153 as "no warp"
+        const double warpBaseBpm = MetaSamplerSound::warpBaseBpmForHost(currentSound->getOriginalBpm(),
+                                                                         hostBpm);
+        const double bpmDiff = std::abs(hostBpm - warpBaseBpm);
+        const bool nearOriginalBpm = (hostBpmParam != nullptr && bpmDiff < 0.1); // treat ~base BPM as "no warp"
 
         isWarping = (currentSound->isWarpEnabled() && hostBpmParam != nullptr && warpToggle && !nearOriginalBpm);
         isRealtimeWarping = false;
@@ -255,7 +258,7 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             const double hostBpm = (hostBpmParam != nullptr)
                                      ? juce::jmax(1.0, hostBpmParam->load(std::memory_order_relaxed))
                                      : currentSound->getOriginalBpm();
-            currentTimeRatio = currentSound->getOriginalBpm() / hostBpm;
+            currentTimeRatio = MetaSamplerSound::warpTimeRatioForHost(currentSound->getOriginalBpm(), hostBpm);
             rb->setTimeRatio(currentTimeRatio);
 
             const int initial = 4096;
@@ -295,7 +298,7 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     if (isRealtimeWarping && rb && hostBpmParam != nullptr)
     {
         const double hostBpm = juce::jmax(1.0, hostBpmParam->load(std::memory_order_relaxed));
-        const double ratio   = currentSound->getOriginalBpm() / hostBpm; // 153 / host
+        const double ratio   = MetaSamplerSound::warpTimeRatioForHost(currentSound->getOriginalBpm(), hostBpm);
 
         if (std::abs(ratio - currentTimeRatio) > 1e-6)
         {
