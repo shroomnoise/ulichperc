@@ -102,7 +102,10 @@ file(GLOB TRANSIENT_FILES  "${CMAKE_CURRENT_SOURCE_DIR}/transients/*.json")
 juce_add_binary_data(${PROJECT_NAME}Data
     SOURCES
         ui/bg.png
-        ui/knob.png
+        ui/pomyatos.png
+        ui/rzhav.png
+        ui/tempo_on.png
+        ui/tempo_off.png
         ${SAMPLE_FILES}
         ${TRANSIENT_FILES}
 )

@@ -16,11 +16,13 @@ public:
     // juce::Slider sampleRateSlider;
     juce::Slider rzhavSlider;
     juce::Slider sustainSlider;
+    juce::ToggleButton warpButton;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> rzhavAttachment;
 
     // std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> bitDepthAttachment;
     // std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sampleRateAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sustainAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> warpAttachment;
     juce::Image bgImage;
 
 private:
