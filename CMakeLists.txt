@@ -90,6 +90,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # These are some toggleable options from the JUCE CMake API
 target_compile_definitions(${PROJECT_NAME}
     PUBLIC
+        NOMINMAX=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
