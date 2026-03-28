@@ -48,8 +48,8 @@ public:
         }
 
         const float rotation = juce::jmap(sliderPosProportional, 0.0f, 1.0f,
-                                          juce::degreesToRadians(-110.0f),
-                                          juce::degreesToRadians(110.0f));
+                                          juce::degreesToRadians(-100.0f),
+                                          juce::degreesToRadians(0.0f));
 
         const auto& image = pomyatosImage;
         const float cx = x + width * 0.5f;
