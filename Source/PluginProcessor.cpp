@@ -356,12 +356,14 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
 {
     juce::ScopedNoDenormals noDenormals;
     const double nowSec = juce::Time::getMillisecondCounterHiRes() * 0.001;
+    bool hostTransportRunning = false;
 
     if (auto* ph = getPlayHead())
     {
         juce::AudioPlayHead::CurrentPositionInfo pos;
         if (ph->getCurrentPosition(pos))
         {
+            hostTransportRunning = (pos.isPlaying || pos.isRecording);
             if (pos.bpm > 0.0)
                 hostBpmAtomic.store(pos.bpm, std::memory_order_relaxed);
         }
@@ -406,7 +408,7 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         pendingWarpPrewarmSoundIndex = 0;
     }
 
-    if (warpEnabledNow)
+    if (warpEnabledNow && hostTransportRunning)
     {
         const double hostBpm = juce::jmax(1.0, hostBpmAtomic.load(std::memory_order_relaxed));
         const double targetBpm = MetaSamplerSound::quantizeWarpBpm(hostBpm);
@@ -457,6 +459,14 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                 }
             }
         }
+    }
+    else if (warpEnabledNow)
+    {
+        // Avoid background warp-cache jobs while host transport is stopped
+        // (plugin scan/idle states are a common crash surface in some hosts).
+        hasPendingWarpPrewarm = false;
+        nextWarpPrewarmRetrySec = 0.0;
+        pendingWarpPrewarmSoundIndex = 0;
     }
 
     lastWarpEnabled = warpEnabledNow;
