@@ -17,9 +17,39 @@ namespace
         int variationIndex = 1;
     };
 
-    bool parseSampleName(const juce::String& binaryResourceBaseName, ParsedSampleName& out)
+    juce::String getFileNameStem(juce::String pathOrName)
     {
-        juce::String tokenName = binaryResourceBaseName;
+        pathOrName = pathOrName.trim().replaceCharacter('\\', '/');
+        pathOrName = pathOrName.fromLastOccurrenceOf("/", false, false);
+
+        if (pathOrName.containsChar('.'))
+            pathOrName = pathOrName.upToLastOccurrenceOf(".", false, false);
+
+        return pathOrName;
+    }
+
+    bool isWavResource(const juce::String& resourceName, const juce::String& originalFilename)
+    {
+        if (originalFilename.isNotEmpty())
+        {
+            if (originalFilename.toLowerCase().endsWith(".wav"))
+                return true;
+        }
+
+        return resourceName.endsWithIgnoreCase("_wav");
+    }
+
+    bool parseSampleName(const juce::String& sampleIdentifier, ParsedSampleName& out)
+    {
+        juce::String tokenName = getFileNameStem(sampleIdentifier);
+
+        while (tokenName.startsWithChar('_'))
+            tokenName = tokenName.substring(1);
+
+        const int samplesPrefixAt = tokenName.lastIndexOfIgnoreCase("samples_");
+        if (samplesPrefixAt >= 0)
+            tokenName = tokenName.substring(samplesPrefixAt + 8);
+
         if (tokenName.startsWithIgnoreCase("samples_"))
             tokenName = tokenName.substring(8);
 
@@ -27,10 +57,23 @@ namespace
         tokens.addTokens(tokenName, "_", "");
         tokens.removeEmptyStrings();
 
-        if (tokens.isEmpty() || !tokens[0].containsOnly("0123456789"))
+        if (tokens.isEmpty())
             return false;
 
-        const int noteIdx = tokens[0].getIntValue();
+        int firstNumericToken = -1;
+        for (int i = 0; i < tokens.size(); ++i)
+        {
+            if (tokens[i].containsOnly("0123456789"))
+            {
+                firstNumericToken = i;
+                break;
+            }
+        }
+
+        if (firstNumericToken < 0)
+            return false;
+
+        const int noteIdx = tokens[firstNumericToken].getIntValue();
         if (noteIdx <= 0)
             return false;
 
@@ -39,7 +82,7 @@ namespace
         int velocityGroup = 1;
         int variation = 1;
 
-        for (int i = 1; i < tokens.size(); ++i)
+        for (int i = firstNumericToken + 1; i < tokens.size(); ++i)
         {
             const auto t = tokens[i].trim();
             if (t.length() < 2)
@@ -124,21 +167,21 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
     // Load all embedded *_wav resources as samples
     for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
     {
-        juce::String name (BinaryData::namedResourceList[i]);
-        DBG("Checking resource: " << name);
+        const juce::String resourceName(BinaryData::namedResourceList[i]);
+        const juce::String originalFilename(BinaryData::originalFilenames[i]);
+        DBG("Checking resource: " << resourceName << " (source file: " << originalFilename << ")");
 
-        // JUCE's BinaryData names for wavs look like: "samples_1_wav"
-        if (! name.endsWithIgnoreCase("_wav"))
+        if (!isWavResource(resourceName, originalFilename))
         {
             DBG("  Skipped (not a wav resource)");
             continue;
         }
 
         int dataSize = 0;
-        const void* data = BinaryData::getNamedResource(name.toRawUTF8(), dataSize);
+        const void* data = BinaryData::getNamedResource(resourceName.toRawUTF8(), dataSize);
         if (data == nullptr || dataSize <= 0)
         {
-            DBG("  ERROR: getNamedResource failed for " << name);
+            DBG("  ERROR: getNamedResource failed for " << resourceName);
             continue;
         }
 
@@ -148,16 +191,21 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
         std::unique_ptr<juce::AudioFormatReader> reader(formatManager.createReaderFor(std::move(stream)));
         if (! reader)
         {
-            DBG("  ERROR: AudioFormatReader creation failed for " << name);
+            DBG("  ERROR: AudioFormatReader creation failed for " << resourceName);
             continue;
         }
 
-        // Strip "_wav": "samples_1_v2_n3_wav" -> "samples_1_v2_n3"
-        juce::String cleanName = name.upToLastOccurrenceOf("_wav", false, false);
+        const juce::String sampleIdentifier = originalFilename.isNotEmpty() ? originalFilename : resourceName;
+        juce::String cleanName = getFileNameStem(sampleIdentifier);
+        if (cleanName.isEmpty())
+            cleanName = resourceName.upToLastOccurrenceOf("_wav", false, false);
+
         ParsedSampleName parsed;
-        if (!parseSampleName(cleanName, parsed))
+        if (!parseSampleName(sampleIdentifier, parsed)
+            && !parseSampleName(resourceName, parsed))
         {
-            DBG("  Skipped: invalid sample name pattern '" << cleanName << "' (expected note[_vX][_nY])");
+            DBG("  Skipped: invalid sample name pattern from '" << sampleIdentifier
+                << "' / '" << resourceName << "' (expected note[_vX][_nY])");
             continue;
         }
 
@@ -181,7 +229,7 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
             0.001,   // attack
             0.05,    // release
             reader->lengthInSamples / reader->sampleRate,
-            name,
+            resourceName,
             153.0
         );
 

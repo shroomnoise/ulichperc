@@ -1,0 +1,17 @@
+Mar 29 16:20:51 Sergeys-MacBook-Pro com.apple.dt.xcodebuild[54750] <Error>: Unable to deliver request ({
+	    "developer_dir" = "/Applications/Xcode.app/Contents/Developer";
+	    request = "set_developer_dir";
+	}) because we are not connected to CoreSimulatorService.
+Mar 29 16:20:51 Sergeys-MacBook-Pro com.apple.dt.xcodebuild[54750] <Warning>: Unable to discover any Simulator runtimes. Developer Directory is /Applications/Xcode.app/Contents/Developer.
+Mar 29 16:20:51 Sergeys-MacBook-Pro com.apple.dt.xcodebuild[54750] <Error>: Could not kickstart simdiskimaged; SimDiskImageManager services will not be available: Error Domain=NSPOSIXErrorDomain Code=53 "Software caused connection abort" UserInfo={NSLocalizedDescription=Error returned in reply from CoreSimulatorService: Connection invalid}
+Mar 29 16:20:51 Sergeys-MacBook-Pro com.apple.dt.xcodebuild[54750] <Error>: simdiskimaged returned error (invalid), marking disconnected.
+Mar 29 16:20:51 Sergeys-MacBook-Pro com.apple.dt.xcodebuild[54750] <Error>: simdiskimaged returned error (invalid), marking disconnected.
+Mar 29 16:20:51 Sergeys-MacBook-Pro com.apple.dt.xcodebuild[54750] <Error>: Unable to deliver request ({
+	    request = "notification_subscription";
+	    "set_path" = "/Users/sergeydubina/Library/Developer/CoreSimulator/Devices";
+	}) because we are not connected to CoreSimulatorService.
+Mar 29 16:20:51 Sergeys-MacBook-Pro com.apple.dt.xcodebuild[54750] <Error>: Could not get list of trusted mount directories: Error Domain=com.apple.CoreSimulator.SimError Code=410 "The service used to manage runtime disk images (simdiskimaged) crashed or is not responding" UserInfo={NSLocalizedDescription=The service used to manage runtime disk images (simdiskimaged) crashed or is not responding}
+Mar 29 16:20:51 Sergeys-MacBook-Pro com.apple.dt.xcodebuild[54750] <Error>: Unable to deliver request ({
+	    request = "notification_subscription";
+	    "set_path" = "/Users/sergeydubina/Library/Developer/CoreSimulator/Devices";
+	}) because we are not connected to CoreSimulatorService.
