@@ -19,11 +19,24 @@ jobs:
         run: cmake -S . -B build-win -G "Visual Studio 17 2022" -A x64 -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL
 
       - name: Build VST3 (Release)
-        run: cmake --build build-win --config Release --target ulichperc_VST3 --parallel
+        run: cmake --build build-win --config Release --target ulichperc_VST3 --parallel -- /p:DebugSymbols=true /p:DebugType=full
 
       - name: List built VST3 contents
         shell: pwsh
         run: Get-ChildItem -Recurse build-win/ulichperc_artefacts/Release/VST3
+
+      - name: Collect PDB symbols
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force -Path symbols | Out-Null
+          $pdbs = Get-ChildItem -Path build-win -Recurse -Filter *.pdb -ErrorAction SilentlyContinue
+          if (-not $pdbs) {
+            Write-Error "No PDB files found under build-win"
+          }
+          foreach ($pdb in $pdbs) {
+            Copy-Item $pdb.FullName -Destination symbols -Force
+          }
+          Get-ChildItem symbols
 
       - name: Upload VST3 artifact
         uses: actions/upload-artifact@v4
@@ -31,6 +44,6 @@ jobs:
           name: ulichnayapercussiya-vst3-windows
           path: |
             build-win/ulichperc_artefacts/Release/VST3/ulichnayapercussiya.vst3
-            build-win/**/*.pdb
+            symbols/*.pdb
           if-no-files-found: error
           retention-days: 14
