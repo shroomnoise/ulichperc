@@ -268,6 +268,10 @@ void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerB
 
 bool AudioPluginAudioProcessor::requestNextWarpCacheForBpm(double hostBpm, int& soundIndex) const
 {
+#if ULICHPERC_DISABLE_WARP_CACHE
+    juce::ignoreUnused(hostBpm, soundIndex);
+    return false;
+#else
     const double bpm = juce::jmax(1.0, hostBpm);
     const int totalSounds = sampler.getNumSounds();
 
@@ -283,10 +287,15 @@ bool AudioPluginAudioProcessor::requestNextWarpCacheForBpm(double hostBpm, int& 
     }
 
     return false;
+#endif
 }
 
 bool AudioPluginAudioProcessor::areWarpCachesReadyForBpm(double hostBpm) const
 {
+#if ULICHPERC_DISABLE_WARP_CACHE
+    juce::ignoreUnused(hostBpm);
+    return false;
+#else
     const double bpm = juce::jmax(1.0, hostBpm);
 
     for (int i = 0; i < sampler.getNumSounds(); ++i)
@@ -301,10 +310,14 @@ bool AudioPluginAudioProcessor::areWarpCachesReadyForBpm(double hostBpm) const
     }
 
     return true;
+#endif
 }
 
 int AudioPluginAudioProcessor::countWarpCacheBuildsInFlight() const
 {
+#if ULICHPERC_DISABLE_WARP_CACHE
+    return 0;
+#else
     int count = 0;
     for (int i = 0; i < sampler.getNumSounds(); ++i)
     {
@@ -318,16 +331,21 @@ int AudioPluginAudioProcessor::countWarpCacheBuildsInFlight() const
     }
 
     return count;
+#endif
 }
 
 void AudioPluginAudioProcessor::clearWarpCaches()
 {
+#if ULICHPERC_DISABLE_WARP_CACHE
+    return;
+#else
     for (int i = 0; i < sampler.getNumSounds(); ++i)
     {
         auto soundPtr = sampler.getSound(i);
         if (auto* sound = dynamic_cast<MetaSamplerSound*>(soundPtr.get()))
             sound->clearWarpedCache();
     }
+#endif
 }
 
 void AudioPluginAudioProcessor::releaseResources() {}
@@ -408,6 +426,15 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         pendingWarpPrewarmSoundIndex = 0;
     }
 
+#if ULICHPERC_DISABLE_WARP_CACHE
+    juce::ignoreUnused(hostTransportRunning);
+    if (warpEnabledNow)
+    {
+        hasPendingWarpPrewarm = false;
+        nextWarpPrewarmRetrySec = 0.0;
+        pendingWarpPrewarmSoundIndex = 0;
+    }
+#else
     if (warpEnabledNow && hostTransportRunning)
     {
         const double hostBpm = juce::jmax(1.0, hostBpmAtomic.load(std::memory_order_relaxed));
@@ -468,6 +495,7 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
         nextWarpPrewarmRetrySec = 0.0;
         pendingWarpPrewarmSoundIndex = 0;
     }
+#endif
 
     lastWarpEnabled = warpEnabledNow;
 

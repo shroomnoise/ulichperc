@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 # Change to your project name
-project(ulichperc VERSION 1.0.0)
+project(ulichperc VERSION 1.0.1)
 
 
 set(CMAKE_CXX_STANDARD 17)
@@ -90,6 +90,7 @@ target_include_directories(${PROJECT_NAME} PRIVATE
 # These are some toggleable options from the JUCE CMake API
 target_compile_definitions(${PROJECT_NAME}
     PUBLIC
+        ULICHPERC_DISABLE_WARP_CACHE=1
         NOMINMAX=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0

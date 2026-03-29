@@ -99,6 +99,11 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
         if (isWarping && bpmIsMoving)
             noteStartDeclickRemaining = noteStartDeclickSamples;
 
+#if ULICHPERC_DISABLE_WARP_CACHE
+        juce::ignoreUnused(bpmIsMoving, hostBpm);
+        if (isWarping)
+            isRealtimeWarping = true;
+#else
         if (isWarping && metadata != nullptr && hostBpmParam != nullptr)
         {
             currentSound->requestWarpedCacheBuild(hostBpm);
@@ -122,6 +127,7 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
         {
             isRealtimeWarping = true;
         }
+#endif
 
         if (isRealtimeWarping)
         {
