@@ -10,14 +10,13 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     setSize (900, 600);
 
     bgImage = juce::ImageCache::getFromMemory(BinaryData::bg_png, BinaryData::bg_pngSize);
-
-    static CustomLookAndFeel customLNF; // static so image is shared
+    customLNF = std::make_unique<CustomLookAndFeel>();
 
     addAndMakeVisible(rzhavSlider);
     rzhavSlider.setComponentID("rzhavSlider");
     rzhavSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
     rzhavSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    rzhavSlider.setLookAndFeel(&customLNF);
+    rzhavSlider.setLookAndFeel(customLNF.get());
     rzhavSlider.setDoubleClickReturnValue(true, 0.0);
     rzhavSlider.setMouseDragSensitivity(150);
     rzhavAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -27,7 +26,7 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     sustainSlider.setComponentID("sustainSlider");
     sustainSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
     sustainSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
-    sustainSlider.setLookAndFeel(&customLNF);
+    sustainSlider.setLookAndFeel(customLNF.get());
     sustainSlider.setDoubleClickReturnValue(true, 0.0);
     sustainSlider.setMouseDragSensitivity(150);
     sustainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
@@ -35,13 +34,18 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
 
     addAndMakeVisible(warpButton);
     warpButton.setButtonText({});
-    warpButton.setLookAndFeel(&customLNF);
+    warpButton.setLookAndFeel(customLNF.get());
     warpAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
     processorRef.parameters, "warpEnabled", warpButton);
 }
 
 AudioPluginAudioProcessorEditor::~AudioPluginAudioProcessorEditor()
 {
+    // Clear L&F pointers before destroying the owned look and feel.
+    rzhavSlider.setLookAndFeel(nullptr);
+    sustainSlider.setLookAndFeel(nullptr);
+    warpButton.setLookAndFeel(nullptr);
+    customLNF.reset();
 }
 
 //==============================================================================

@@ -33,7 +33,6 @@ public:
     bool isMidiEffect() const override;
     double getTailLengthSeconds() const override;
     juce::AudioProcessorValueTreeState parameters;
-    std::atomic<float>* bitDepthParam = nullptr;
     std::atomic<float>* sustainShortenParam = nullptr;
     std::atomic<float>* warpParamRaw = nullptr;
     
@@ -47,7 +46,6 @@ public:
     void setCurrentProgram (int index) override;
     const juce::String getProgramName (int index) override;
     void changeProgramName (int index, const juce::String& newName) override;
-    std::atomic<float>* rateDivideParam = nullptr;
 
     //==============================================================================
     void getStateInformation (juce::MemoryBlock& destData) override;
@@ -60,8 +58,6 @@ private:
     void clearWarpCaches();
 
     //==============================================================================
-    LayeredSynthesiser sampler;
-    std::unique_ptr<juce::AudioFormatReader> reader;
     std::atomic<double> hostBpmAtomic { 153.0 };
     std::atomic<bool> warpEnabledAtomic { true };
     std::atomic<bool> hostBpmMovingAtomic { false };
@@ -82,6 +78,7 @@ private:
     static constexpr int warpPrewarmMaxInFlightBuilds = 2;      // faster warmup with controlled CPU
     static constexpr double hostBpmMotionEpsilon = 0.01;        // detect host BPM movement
     static constexpr double hostBpmMotionHoldSec = 0.25;        // keep "moving" state briefly
+    LayeredSynthesiser sampler;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPluginAudioProcessor)
 };

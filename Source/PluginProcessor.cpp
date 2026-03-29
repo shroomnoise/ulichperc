@@ -135,8 +135,6 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
 {
     DBG("=== AudioPluginAudioProcessor constructor ===");
 
-    bitDepthParam   = parameters.getRawParameterValue("bitDepth");
-    rateDivideParam = parameters.getRawParameterValue("rateDivide");
     rzhavParam = parameters.getRawParameterValue("rzhavchina");
     sustainShortenParam  = parameters.getRawParameterValue("sustainShorten");
     warpParamRaw = parameters.getRawParameterValue("warpEnabled");
@@ -249,7 +247,14 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
 
 
 
-AudioPluginAudioProcessor::~AudioPluginAudioProcessor() = default;
+AudioPluginAudioProcessor::~AudioPluginAudioProcessor()
+{
+    suspendProcessing(true);
+    sampler.allNotesOff(1, false);
+    sampler.clearLayerMappings();
+    sampler.clearVoices();
+    sampler.clearSounds();
+}
 
 //==============================================================================
 

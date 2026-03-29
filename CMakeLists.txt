@@ -24,7 +24,7 @@ include(${CPM_DOWNLOAD_LOCATION})
 CPMAddPackage(
     NAME juce
     GIT_REPOSITORY https://github.com/juce-framework/JUCE.git
-    GIT_TAG origin/master
+    GIT_TAG 501c07674e1ad693085a7e7c398f205c2677f5da
 )
 
 # Make sure you include any new source files here
@@ -113,6 +113,14 @@ juce_add_binary_data(${PROJECT_NAME}Data
 )
 
 # JUCE libraries to bring into our project
+set(JUCE_LTO_TARGET juce::juce_recommended_lto_flags)
+if (WIN32)
+    # Keep Windows CI/runtime behavior deterministic and avoid aggressive LTO
+    # in plugin binaries loaded by third-party hosts.
+    set(JUCE_LTO_TARGET)
+    set_target_properties(${PROJECT_NAME} PROPERTIES INTERPROCEDURAL_OPTIMIZATION FALSE)
+endif()
+
 target_link_libraries(${PROJECT_NAME}
         PUBLIC
         juce::juce_analytics
@@ -127,7 +135,7 @@ target_link_libraries(${PROJECT_NAME}
         juce::juce_audio_utils
         juce::juce_dsp
         juce::juce_recommended_config_flags
-        juce::juce_recommended_lto_flags
+        ${JUCE_LTO_TARGET}
         juce::juce_recommended_warning_flags
         ${PROJECT_NAME}Data
 )

@@ -218,8 +218,8 @@ void LayeredSynthesiser::noteOn(int midiChannel, int midiNoteNumber, float veloc
             if (voice->getCurrentlyPlayingNote() == midiNoteNumber && voice->isPlayingChannel(midiChannel))
                 stopVoice(voice, 1.0f, true);
 
-        startVoice(findFreeVoice(selected, midiChannel, midiNoteNumber, isNoteStealingEnabled()),
-                   selected, midiChannel, midiNoteNumber, velocity);
+        if (auto* voice = findFreeVoice(selected, midiChannel, midiNoteNumber, isNoteStealingEnabled()))
+            startVoice(voice, selected, midiChannel, midiNoteNumber, velocity);
         return;
     }
 
@@ -232,8 +232,8 @@ void LayeredSynthesiser::noteOn(int midiChannel, int midiNoteNumber, float veloc
                 if (voice->getCurrentlyPlayingNote() == midiNoteNumber && voice->isPlayingChannel(midiChannel))
                     stopVoice(voice, 1.0f, true);
 
-            startVoice(findFreeVoice(sound, midiChannel, midiNoteNumber, isNoteStealingEnabled()),
-                       sound, midiChannel, midiNoteNumber, velocity);
+            if (auto* voice = findFreeVoice(sound, midiChannel, midiNoteNumber, isNoteStealingEnabled()))
+                startVoice(voice, sound, midiChannel, midiNoteNumber, velocity);
         }
     }
 }

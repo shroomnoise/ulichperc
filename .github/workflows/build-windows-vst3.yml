@@ -16,15 +16,21 @@ jobs:
           submodules: recursive
 
       - name: Configure CMake (Visual Studio 2022, x64)
-        run: cmake -S . -B build-win -G "Visual Studio 17 2022" -A x64
+        run: cmake -S . -B build-win -G "Visual Studio 17 2022" -A x64 -DCMAKE_MSVC_RUNTIME_LIBRARY=MultiThreadedDLL
 
       - name: Build VST3 (Release)
         run: cmake --build build-win --config Release --target ulichperc_VST3 --parallel
+
+      - name: List built VST3 contents
+        shell: pwsh
+        run: Get-ChildItem -Recurse build-win/ulichperc_artefacts/Release/VST3
 
       - name: Upload VST3 artifact
         uses: actions/upload-artifact@v4
         with:
           name: ulichnayapercussiya-vst3-windows
-          path: build-win/ulichperc_artefacts/Release/VST3/*.vst3
+          path: |
+            build-win/ulichperc_artefacts/Release/VST3/ulichnayapercussiya.vst3
+            build-win/**/*.pdb
           if-no-files-found: error
           retention-days: 14
