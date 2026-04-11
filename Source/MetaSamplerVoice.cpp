@@ -294,6 +294,12 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
         return;
     }
 
+    float sustainAmount = sustainAmountParam != nullptr ? sustainAmountParam->load() : 0.0f;
+    sustainAmount = juce::jlimit(0.0f, 1.0f, sustainAmount);
+    constexpr float maxSustainShortenMakeupDb = 1.0f;
+    const float sustainShortenMakeupGain = juce::Decibels::decibelsToGain(
+        sustainAmount * maxSustainShortenMakeupDb);
+
     // -------------------- WARP PATH (Complex-like) --------------------
     if (isRealtimeWarping && rb && hostBpmParam != nullptr)
     {
@@ -314,8 +320,6 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             rbOut.setSize(chans, numSamples, false, false, true);
         }
 
-        float sustainAmount = sustainAmountParam != nullptr ? sustainAmountParam->load() : 0.0f;
-        sustainAmount = juce::jlimit(0.0f, 1.0f, sustainAmount);
         const bool doSustainShorten = (metadata != nullptr
                                        && !metadata->ignoreTransientShaper
                                        && sustainAmount > 0.0f);
@@ -458,6 +462,9 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                     sampleR *= sustainGain;
                 }
 
+                sampleL *= sustainShortenMakeupGain;
+                sampleR *= sustainShortenMakeupGain;
+
                 const float declick = getNoteStartDeclickGain();
                 sampleL *= declick;
                 sampleR *= declick;
@@ -481,9 +488,6 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     // ------------------ END WARP PATH ------------------
 
     // ------------------ ORIGINAL (NON-WARP) PATH ------------------
-    float sustainAmount = sustainAmountParam != nullptr ? sustainAmountParam->load() : 0.0f;
-    sustainAmount = juce::jlimit(0.0f, 1.0f, sustainAmount);
-
     const float* srcL = data.getReadPointer(0);
     const float* srcR = (sourceNumChans > 1) ? data.getReadPointer(1) : nullptr;
 
@@ -556,6 +560,9 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                 sampleL *= sustainGain;
                 sampleR *= sustainGain;
             }
+
+            sampleL *= sustainShortenMakeupGain;
+            sampleR *= sustainShortenMakeupGain;
 
             const float declick = getNoteStartDeclickGain();
             sampleL *= declick;
@@ -636,6 +643,9 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
             sampleL *= sustainGain;
             sampleR *= sustainGain;
         }
+
+        sampleL *= sustainShortenMakeupGain;
+        sampleR *= sustainShortenMakeupGain;
 
         const float declick = getNoteStartDeclickGain();
         sampleL *= declick;
