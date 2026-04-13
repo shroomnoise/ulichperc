@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 # Change to your project name
-project(ulichperc VERSION 1.0.1)
+project(ulichperc VERSION 1.0.2)
 
 
 set(CMAKE_CXX_STANDARD 17)
@@ -101,6 +101,8 @@ target_compile_definitions(${PROJECT_NAME}
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0
         JUCE_VST3_CAN_REPLACE_VST2=0
+        $<$<PLATFORM_ID:Windows>:NOMINMAX=1>
+        $<$<PLATFORM_ID:Windows>:WIN32_LEAN_AND_MEAN=1>
 )
 
 file(GLOB SAMPLE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/samples/*.wav")

@@ -129,8 +129,8 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
     : AudioProcessor (BusesProperties().withOutput("Output", juce::AudioChannelSet::stereo(), true)),
       parameters(*this, nullptr, "params", {
           std::make_unique<juce::AudioParameterFloat>("rzhavchina", "Rzhavchina", juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f),
-          std::make_unique<juce::AudioParameterFloat>("sustainShorten", "Sustain Shorten", juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f),
-          std::make_unique<juce::AudioParameterBool>("warpEnabled", "Warp Enabled", true)
+          std::make_unique<juce::AudioParameterFloat>("sustainShorten", "Pomyatost", juce::NormalisableRange<float>(0.0f, 1.0f), 0.0f),
+          std::make_unique<juce::AudioParameterBool>("warpEnabled", "Tempo sync", true)
       })
 {
     DBG("=== AudioPluginAudioProcessor constructor ===");

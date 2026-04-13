@@ -48,7 +48,7 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
         metadata->sampleRate = 48000.0;
 
     if (!metadata->hasTransients())
-        metadata->transients.push_back(0.01);
+        metadata->transients.push_back(0.0);
 
     // Always trust measured audio duration over JSON.
     metadata->lengthSec = lengthInSeconds;
