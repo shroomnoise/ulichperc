@@ -11,10 +11,10 @@ std::unique_ptr<SampleMetadata> loadMetadataForResource(const juce::String& wavR
         fallback->warp = false;
         fallback->loop = false;
         fallback->ignoreTransientShaper = false;
-        fallback->transients.push_back(0.01);
+        fallback->transients.push_back(0.0);
         DBG("  Using fallback metadata for " << wavResourceName
             << ": " << reason
-            << " (sampleRate=48000, transient[0]=0.01)");
+            << " (sampleRate=48000, transient[0]=0.0)");
         return fallback;
     };
 
@@ -79,8 +79,8 @@ std::unique_ptr<SampleMetadata> loadMetadataForResource(const juce::String& wavR
 
     if (!meta->hasTransients())
     {
-        meta->transients.push_back(0.01);
-        DBG("  JSON had no valid transients, inserted default transient 0.01 for " << jsonResName);
+        meta->transients.push_back(0.0);
+        DBG("  JSON had no valid transients, inserted default transient 0.0 for " << jsonResName);
     }
 
     DBG("  Loaded metadata OK for " << jsonResName

@@ -296,9 +296,10 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
 
     float sustainAmount = sustainAmountParam != nullptr ? sustainAmountParam->load() : 0.0f;
     sustainAmount = juce::jlimit(0.0f, 1.0f, sustainAmount);
-    constexpr float maxSustainShortenMakeupDb = 1.0f;
+    const bool hasTransientData = (metadata != nullptr && !metadata->transients.empty());
+    constexpr float maxSustainShortenMakeupDb = 3.0f;
     const float sustainShortenMakeupGain = juce::Decibels::decibelsToGain(
-        sustainAmount * maxSustainShortenMakeupDb);
+        (hasTransientData ? sustainAmount : 0.0f) * maxSustainShortenMakeupDb);
 
     // -------------------- WARP PATH (Complex-like) --------------------
     if (isRealtimeWarping && rb && hostBpmParam != nullptr)
@@ -698,8 +699,12 @@ float MetaSamplerVoice::computeSustainGain(double timeSec, float amount)
     const double a = juce::jlimit(0.0, 1.0, (double)amount);
 
     constexpr double holdCurve = 15.0;
-    const double holdFrac  = std::pow(1.0 - a, holdCurve);
-    const double fadeStart = t0 + holdFrac * segLen;
+    const double holdFrac = std::pow(1.0 - a, holdCurve);
+    // Preserve a small onset window at high shorten amounts, then drop rapidly.
+    constexpr double protectedTransientSecAtMax = 0.012;
+    const double holdFloorFrac = juce::jlimit(0.0, 1.0, (protectedTransientSecAtMax * a) / segLen);
+    const double effectiveHoldFrac = juce::jmax(holdFrac, holdFloorFrac);
+    const double fadeStart = t0 + effectiveHoldFrac * segLen;
 
     if (timeSec <= fadeStart) return 1.0f;
     if (timeSec >= t1)        return 0.0f;
@@ -707,7 +712,8 @@ float MetaSamplerVoice::computeSustainGain(double timeSec, float amount)
     const double x = (timeSec - fadeStart) / juce::jmax(1e-9, (t1 - fadeStart));
 
     constexpr double kMin = 0.2;
-    constexpr double kMax = 9.0;
+    const bool singleTransient = (ts.size() <= 1);
+    const double kMax = singleTransient ? 45.0 : 14.0;
     const double k = kMin + (kMax - kMin) * a;
 
     const double e0 = std::exp(-k * 0.0);

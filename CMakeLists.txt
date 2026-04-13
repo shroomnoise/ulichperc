@@ -1,7 +1,7 @@
 cmake_minimum_required(VERSION 3.24)
 
 # Change to your project name
-project(ulichperc VERSION 1.0.0)
+project(ulichperc VERSION 1.0.1)
 
 
 set(CMAKE_CXX_STANDARD 17)
