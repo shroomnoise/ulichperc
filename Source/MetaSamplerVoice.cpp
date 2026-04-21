@@ -702,7 +702,23 @@ float MetaSamplerVoice::computeSustainGain(double timeSec, float amount)
     const double segLen = t1 - t0;
     if (segLen <= 0.0) return 1.0f;
 
-    const double a = juce::jlimit(0.0, 1.0, (double)amount);
+    const double aRaw = juce::jlimit(0.0, 1.0, (double)amount);
+    // Softer lower half: values up to 0.5 produce noticeably less shortening.
+    constexpr double lowerKnee = 0.5;
+    constexpr double lowerResponseAtHalf = 0.30;
+    constexpr double lowerCurve = 2.5;
+    constexpr double upperCurve = 1.1;
+    double a = 0.0;
+    if (aRaw <= lowerKnee)
+    {
+        const double t = aRaw / lowerKnee;
+        a = lowerResponseAtHalf * std::pow(t, lowerCurve);
+    }
+    else
+    {
+        const double t = (aRaw - lowerKnee) / (1.0 - lowerKnee);
+        a = lowerResponseAtHalf + (1.0 - lowerResponseAtHalf) * std::pow(t, upperCurve);
+    }
 
     constexpr double holdCurve = 15.0;
     const double holdFrac = std::pow(1.0 - a, holdCurve);
