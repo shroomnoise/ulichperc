@@ -612,12 +612,28 @@ void AudioPluginAudioProcessor::changeProgramName(int index, const juce::String&
 
 void AudioPluginAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
-    juce::ignoreUnused(destData);
+    auto state = parameters.copyState();
+
+    if (auto xml = state.createXml())
+        copyXmlToBinary(*xml, destData);
 }
 
 void AudioPluginAudioProcessor::setStateInformation(const void* data, int sizeInBytes)
 {
-    juce::ignoreUnused(data, sizeInBytes);
+    if (auto xml = getXmlFromBinary(data, sizeInBytes))
+    {
+        if (xml->hasTagName(parameters.state.getType()))
+        {
+            parameters.replaceState(juce::ValueTree::fromXml(*xml));
+
+            if (warpParamRaw != nullptr)
+            {
+                const bool restoredWarpEnabled = warpParamRaw->load(std::memory_order_relaxed) >= 0.5f;
+                warpEnabledAtomic.store(restoredWarpEnabled, std::memory_order_relaxed);
+                lastWarpEnabled = restoredWarpEnabled;
+            }
+        }
+    }
 }
 
 //==============================================================================
