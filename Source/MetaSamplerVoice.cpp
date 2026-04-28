@@ -107,8 +107,7 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
         if (isWarping && metadata != nullptr && hostBpmParam != nullptr)
         {
             currentSound->requestWarpedCacheBuild(hostBpm);
-            if (!bpmIsMoving)
-                activeWarpCache = currentSound->getWarpedCache(hostBpm);
+            activeWarpCache = currentSound->getWarpedCache(hostBpm);
 
             if (activeWarpCache)
             {
@@ -144,6 +143,7 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
                   | RubberBand::RubberBandStretcher::OptionThreadingNever
                   | RubberBand::RubberBandStretcher::OptionTransientsCrisp   // sharper percussive onsets
                   | RubberBand::RubberBandStretcher::OptionDetectorPercussive
+                  | RubberBand::RubberBandStretcher::OptionPitchHighConsistency
                   | RubberBand::RubberBandStretcher::OptionWindowShort       // shorter window reduces smearing
                   | RubberBand::RubberBandStretcher::OptionChannelsTogether; // keep stereo transients aligned
 
@@ -157,6 +157,13 @@ void MetaSamplerVoice::startNote(int midiNoteNumber, float velocity,
             }
 
             rb->reset();
+            const double hostBpmAtNoteStart = (hostBpmParam != nullptr)
+                                                ? juce::jmax(1.0, hostBpmParam->load(std::memory_order_relaxed))
+                                                : currentSound->getOriginalBpm();
+            currentTimeRatio = MetaSamplerSound::warpTimeRatioForHost(currentSound->getOriginalBpm(),
+                                                                       hostBpmAtNoteStart);
+            rb->setPitchScale(makeRealtimeRubberBandPitchScale());
+            rb->setTimeRatio(makeRealtimeRubberBandRatio(currentTimeRatio));
 
             // Preallocate to avoid allocations in render (best-effort)
             const int initial = 4096;
@@ -217,8 +224,16 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
         activeBuffer = &currentSound->getAudioData();
 
     // If BPM automation starts after note-on, leave cache path and continue with realtime warp.
-    if (usingWarpCache && !isRealtimeWarping && hostBpmMovingParam != nullptr
-        && hostBpmMovingParam->load(std::memory_order_relaxed))
+    const bool hostBpmIsMoving = (hostBpmMovingParam != nullptr)
+                               && hostBpmMovingParam->load(std::memory_order_relaxed);
+    const double hostBpmNow = (hostBpmParam != nullptr)
+                            ? juce::jmax(1.0, hostBpmParam->load(std::memory_order_relaxed))
+                            : 0.0;
+    const double quantizedHostBpm = MetaSamplerSound::quantizeWarpBpm(hostBpmNow);
+    const bool cacheBpmMismatch = (activeWarpCache == nullptr)
+                               || (std::abs(activeWarpCache->bpm - quantizedHostBpm) > 0.005);
+
+    if (usingWarpCache && !isRealtimeWarping && hostBpmIsMoving && cacheBpmMismatch)
     {
         const double cacheRatio = (activeWarpCache != nullptr)
                                     ? activeWarpCache->timeRatio
@@ -248,6 +263,7 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                   | RubberBand::RubberBandStretcher::OptionThreadingNever
                   | RubberBand::RubberBandStretcher::OptionTransientsCrisp
                   | RubberBand::RubberBandStretcher::OptionDetectorPercussive
+                  | RubberBand::RubberBandStretcher::OptionPitchHighConsistency
                   | RubberBand::RubberBandStretcher::OptionWindowShort
                   | RubberBand::RubberBandStretcher::OptionChannelsTogether;
 
@@ -265,7 +281,8 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                                      ? juce::jmax(1.0, hostBpmParam->load(std::memory_order_relaxed))
                                      : currentSound->getOriginalBpm();
             currentTimeRatio = MetaSamplerSound::warpTimeRatioForHost(currentSound->getOriginalBpm(), hostBpm);
-            rb->setTimeRatio(currentTimeRatio);
+            rb->setPitchScale(makeRealtimeRubberBandPitchScale());
+            rb->setTimeRatio(makeRealtimeRubberBandRatio(currentTimeRatio));
 
             const int initial = 4096;
             rbIn.setSize (chans, initial, false, false, true);
@@ -316,7 +333,7 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
         if (std::abs(ratio - currentTimeRatio) > 1e-6)
         {
             currentTimeRatio = ratio;
-            rb->setTimeRatio(ratio);
+            rb->setTimeRatio(makeRealtimeRubberBandRatio(ratio));
         }
 
         const int chans = juce::jlimit(1, 2, sourceNumChans);
@@ -350,7 +367,8 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                         if (loopWhileHeld)
                         {
                             rb->reset();
-                            rb->setTimeRatio(currentTimeRatio);
+                            rb->setPitchScale(makeRealtimeRubberBandPitchScale());
+                            rb->setTimeRatio(makeRealtimeRubberBandRatio(currentTimeRatio));
                             rbSrcPos = 0;
                             rbEnded = false;
                             warpedOutputTimeSec = 0.0;
@@ -401,7 +419,8 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                     if (loopWhileHeld)
                     {
                         rb->reset();
-                        rb->setTimeRatio(currentTimeRatio);
+                        rb->setPitchScale(makeRealtimeRubberBandPitchScale());
+                        rb->setTimeRatio(makeRealtimeRubberBandRatio(currentTimeRatio));
                         rbSrcPos = 0;
                         rbEnded = false;
                         warpedOutputTimeSec = 0.0;
@@ -668,6 +687,21 @@ void MetaSamplerVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
 
         sourceSamplePosition += pitchRatio;
     }
+}
+
+double MetaSamplerVoice::makeRealtimeRubberBandRatio(double musicalTimeRatio) const
+{
+    const double safeMusicalRatio = juce::jmax(1e-9, musicalTimeRatio);
+    const double sourceSr = juce::jmax(1.0, activeSourceSampleRate);
+    const double playbackSr = juce::jmax(1.0, getSampleRate());
+    return safeMusicalRatio * (playbackSr / sourceSr);
+}
+
+double MetaSamplerVoice::makeRealtimeRubberBandPitchScale() const
+{
+    const double sourceSr = juce::jmax(1.0, activeSourceSampleRate);
+    const double playbackSr = juce::jmax(1.0, getSampleRate());
+    return sourceSr / playbackSr;
 }
 
 float MetaSamplerVoice::getNoteStartDeclickGain()

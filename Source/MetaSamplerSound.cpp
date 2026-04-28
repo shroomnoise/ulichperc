@@ -7,6 +7,13 @@
 
 namespace
 {
+    constexpr double warpBpmQuantum = 0.01;
+    constexpr double warpBpmMatchEpsilon = 0.005;
+
+    bool bpmMatches(double a, double b) noexcept
+    {
+        return std::abs(a - b) <= warpBpmMatchEpsilon;
+    }
 }
 
 MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
@@ -47,6 +54,14 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
     if (metadata->sampleRate <= 0.0)
         metadata->sampleRate = 48000.0;
 
+    if (std::abs(metadata->sampleRate - sourceSampleRate) > 1.0)
+    {
+        DBG("MetaSamplerSound: metadata sampleRate (" << metadata->sampleRate
+            << ") differs from audio sampleRate (" << sourceSampleRate
+            << ") for " << wavResourceNameForMetadata
+            << ". Warp processing will use audio sample rate.");
+    }
+
     if (!metadata->hasTransients())
         metadata->transients.push_back(0.0);
 
@@ -67,7 +82,8 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
 
 double MetaSamplerSound::quantizeWarpBpm(double hostBpm) noexcept
 {
-    return juce::jmax(1.0, hostBpm);
+    const double safeBpm = juce::jmax(1.0, hostBpm);
+    return std::round(safeBpm / warpBpmQuantum) * warpBpmQuantum;
 }
 
 double MetaSamplerSound::warpBaseBpmForHost(double originalBpm, double hostBpm) noexcept
@@ -127,7 +143,7 @@ std::shared_ptr<MetaSamplerSound::WarpedCache> MetaSamplerSound::getWarpedCache(
 
     std::lock_guard<std::mutex> lock(warpCacheMutex);
 
-    if (warpCache && warpCache->bpm == bpm)
+    if (warpCache && bpmMatches(warpCache->bpm, bpm))
         return warpCache;
 
     return nullptr;
@@ -143,18 +159,18 @@ void MetaSamplerSound::requestWarpedCacheBuild(double hostBpm) const
 
     std::lock_guard<std::mutex> lock(warpCacheMutex);
 
-    if (warpCache && warpCache->bpm == bpm)
+    if (warpCache && bpmMatches(warpCache->bpm, bpm))
         return;
 
     if (warpCacheFuture.valid())
     {
-        if (pendingWarpCacheBpm == bpm)
+        if (bpmMatches(pendingWarpCacheBpm, bpm))
             return;
 
         // Keep background work bounded to one build per sound.
         if (warpCacheFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
         {
-            if (warpCache && warpCache->bpm != bpm)
+            if (warpCache && !bpmMatches(warpCache->bpm, bpm))
                 warpCache.reset();
             return;
         }
@@ -165,7 +181,7 @@ void MetaSamplerSound::requestWarpedCacheBuild(double hostBpm) const
         if (shouldPublish && readyCache)
             warpCache = std::move(readyCache);
 
-        if (warpCache && warpCache->bpm == bpm)
+        if (warpCache && bpmMatches(warpCache->bpm, bpm))
             return;
     }
 
@@ -219,8 +235,9 @@ std::unique_ptr<MetaSamplerSound::WarpedCache> MetaSamplerSound::renderWarpedCac
 
     auto cache = std::make_unique<WarpedCache>();
     cache->bpm = hostBpm;
-    cache->sourceSampleRate = metadata->sampleRate > 0.0 ? metadata->sampleRate
-                                                         : sourceSampleRate;
+    // Warp cache must always use actual audio sample rate, not JSON metadata sampleRate.
+    // JSON sampleRate can differ from the loaded WAV rate and would bias pitch.
+    cache->sourceSampleRate = juce::jmax(1.0, sourceSampleRate);
 
     const double timeRatio = warpTimeRatioForHost(originalBpm, hostBpm);
     cache->timeRatio = timeRatio;

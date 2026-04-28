@@ -57,6 +57,8 @@ private:
     // Per-sample gain inside sustain zones (shortens tail as knob increases)
     float computeSustainGain(double timeSec, float amount);
     float getNoteStartDeclickGain();
+    double makeRealtimeRubberBandRatio(double musicalTimeRatio) const;
+    double makeRealtimeRubberBandPitchScale() const;
     float velocityGain = 1.0f;
     
     std::atomic<double>* hostBpmParam = nullptr;

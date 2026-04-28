@@ -8,6 +8,42 @@ set(CMAKE_CXX_STANDARD 17)
 set(CMAKE_XCODE_GENERATE_SCHEME OFF)
 set_property(GLOBAL PROPERTY USE_FOLDERS ON)
 
+if (APPLE)
+    # Avoid host-only arm64 builds and host OS minimums leaking into the bundle.
+    # This keeps releases discoverable on Intel Macs.
+    option(ULICHPERC_MAC_BUILD_UNIVERSAL "Build universal macOS binaries (arm64 + x86_64)." ON)
+    set(ULICHPERC_MAC_LEGACY_INTEL_MIN_OS "10.13" CACHE STRING "Minimum macOS target for x86_64-only builds.")
+
+    if ("${CMAKE_OSX_ARCHITECTURES}" STREQUAL "")
+        if (ULICHPERC_MAC_BUILD_UNIVERSAL)
+            set(CMAKE_OSX_ARCHITECTURES "arm64;x86_64" CACHE STRING "macOS target architectures" FORCE)
+        endif()
+    endif()
+
+    if ("${CMAKE_OSX_DEPLOYMENT_TARGET}" STREQUAL "")
+        set(_ULICHPERC_HAS_ARM64 FALSE)
+        set(_ULICHPERC_HAS_X86_64 FALSE)
+        foreach(_ULICHPERC_ARCH ${CMAKE_OSX_ARCHITECTURES})
+            if (_ULICHPERC_ARCH STREQUAL "arm64")
+                set(_ULICHPERC_HAS_ARM64 TRUE)
+            endif()
+            if (_ULICHPERC_ARCH STREQUAL "x86_64")
+                set(_ULICHPERC_HAS_X86_64 TRUE)
+            endif()
+        endforeach()
+
+        if (_ULICHPERC_HAS_ARM64)
+            # arm64 macOS binaries require macOS 11.0+.
+            set(CMAKE_OSX_DEPLOYMENT_TARGET "11.0" CACHE STRING "Minimum macOS target version" FORCE)
+        elseif(_ULICHPERC_HAS_X86_64)
+            set(CMAKE_OSX_DEPLOYMENT_TARGET "${ULICHPERC_MAC_LEGACY_INTEL_MIN_OS}" CACHE STRING "Minimum macOS target version" FORCE)
+        endif()
+    endif()
+
+    message(STATUS "ULICHPERC macOS architectures: ${CMAKE_OSX_ARCHITECTURES}")
+    message(STATUS "ULICHPERC macOS deployment target: ${CMAKE_OSX_DEPLOYMENT_TARGET}")
+endif()
+
 if (MSVC)
     # Keep optimized Release builds while emitting external PDB files for crash symbolication.
     add_compile_options("$<$<CONFIG:Release>:/Zi>")
@@ -71,7 +107,7 @@ juce_add_plugin(${PROJECT_NAME}
         PLUGIN_MANUFACTURER_CODE Tap1
         PLUGIN_CODE Reg0
         FORMATS ${PLUGIN_FORMATS}
-        PRODUCT_NAME "ulichnaya percussiyaa"
+        PRODUCT_NAME "ulichpercsold"
         VST3_CATEGORIES Instrument
 )
 

@@ -1,4 +1,6 @@
 build
+build-mac-universal
+build-mac-intel-legacy
 .DS_Store
 test.exe
 com.apple.DeveloperTools
