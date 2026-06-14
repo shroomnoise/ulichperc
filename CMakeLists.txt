@@ -107,7 +107,7 @@ juce_add_plugin(${PROJECT_NAME}
         PLUGIN_MANUFACTURER_CODE Tap1
         PLUGIN_CODE Reg0
         FORMATS ${PLUGIN_FORMATS}
-        PRODUCT_NAME "ulichpercsold"
+        PRODUCT_NAME "ulichpercs"
         VST3_CATEGORIES Instrument
 )
 

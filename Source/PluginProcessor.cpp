@@ -5,6 +5,9 @@
 #include "MetaSamplerVoice.h"
 #include "MetaSamplerSound.h"
 #include <cmath>
+#include <map>
+#include <utility>
+#include <vector>
 
 //==============================================================================
 
@@ -15,6 +18,16 @@ namespace
         int noteIndex = 0;
         int velocityGroupIndex = 1;
         int variationIndex = 1;
+        int pitchIndex = 1;
+    };
+
+    struct ParsedSampleResource
+    {
+        juce::String resourceName;
+        juce::String originalFilename;
+        juce::String sampleIdentifier;
+        juce::String cleanName;
+        ParsedSampleName parsed;
     };
 
     juce::String getFileNameStem(juce::String pathOrName)
@@ -79,8 +92,10 @@ namespace
 
         bool hasVelocityToken = false;
         bool hasVariationToken = false;
+        bool hasPitchToken = false;
         int velocityGroup = 1;
         int variation = 1;
+        int pitch = 1;
 
         for (int i = firstNumericToken + 1; i < tokens.size(); ++i)
         {
@@ -112,6 +127,13 @@ namespace
                 hasVariationToken = true;
                 variation = value;
             }
+            else if (prefix == 'p')
+            {
+                if (hasPitchToken)
+                    return false;
+                hasPitchToken = true;
+                pitch = value;
+            }
             else
             {
                 return false;
@@ -121,7 +143,33 @@ namespace
         out.noteIndex = noteIdx;
         out.velocityGroupIndex = velocityGroup;
         out.variationIndex = variation;
+        out.pitchIndex = pitch;
         return true;
+    }
+
+    int countExtraPitchSlotsBefore(int noteIndex,
+                                   const std::map<int, int>& maxPitchIndexByNoteIndex) noexcept
+    {
+        int extraSlots = 0;
+
+        for (const auto& entry : maxPitchIndexByNoteIndex)
+        {
+            if (entry.first >= noteIndex)
+                break;
+
+            extraSlots += juce::jmax(1, entry.second) - 1;
+        }
+
+        return extraSlots;
+    }
+
+    int getMappedNoteIndex(const ParsedSampleName& parsed,
+                           const std::map<int, int>& maxPitchIndexByNoteIndex) noexcept
+    {
+        return parsed.noteIndex
+             + countExtraPitchSlotsBefore(parsed.noteIndex, maxPitchIndexByNoteIndex)
+             + parsed.pitchIndex
+             - 1;
     }
 }
 
@@ -162,7 +210,10 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
         DBG("  Resource[" << i << "]: " << BinaryData::namedResourceList[i]);
     }
 
-    // Load all embedded *_wav resources as samples
+    std::vector<ParsedSampleResource> sampleResources;
+    std::map<int, int> maxPitchIndexByNoteIndex;
+
+    // First pass: parse names and compute how many MIDI note slots each base sample occupies.
     for (int i = 0; i < BinaryData::namedResourceListSize; ++i)
     {
         const juce::String resourceName(BinaryData::namedResourceList[i]);
@@ -174,6 +225,38 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
             DBG("  Skipped (not a wav resource)");
             continue;
         }
+
+        const juce::String sampleIdentifier = originalFilename.isNotEmpty() ? originalFilename : resourceName;
+        juce::String cleanName = getFileNameStem(sampleIdentifier);
+        if (cleanName.isEmpty())
+            cleanName = resourceName.upToLastOccurrenceOf("_wav", false, false);
+
+        ParsedSampleName parsed;
+        if (!parseSampleName(sampleIdentifier, parsed)
+            && !parseSampleName(resourceName, parsed))
+        {
+            DBG("  Skipped: invalid sample name pattern from '" << sampleIdentifier
+                << "' / '" << resourceName << "' (expected note[_vX][_nY][_pZ])");
+            continue;
+        }
+
+        ParsedSampleResource sampleResource;
+        sampleResource.resourceName = resourceName;
+        sampleResource.originalFilename = originalFilename;
+        sampleResource.sampleIdentifier = sampleIdentifier;
+        sampleResource.cleanName = cleanName;
+        sampleResource.parsed = parsed;
+        sampleResources.push_back(std::move(sampleResource));
+
+        auto& maxPitchIndex = maxPitchIndexByNoteIndex[parsed.noteIndex];
+        maxPitchIndex = juce::jmax(maxPitchIndex, parsed.pitchIndex);
+    }
+
+    // Second pass: load each sample into the expanded note map.
+    for (const auto& sampleResource : sampleResources)
+    {
+        const auto& resourceName = sampleResource.resourceName;
+        const auto& parsed = sampleResource.parsed;
 
         int dataSize = 0;
         const void* data = BinaryData::getNamedResource(resourceName.toRawUTF8(), dataSize);
@@ -193,34 +276,26 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
             continue;
         }
 
-        const juce::String sampleIdentifier = originalFilename.isNotEmpty() ? originalFilename : resourceName;
-        juce::String cleanName = getFileNameStem(sampleIdentifier);
-        if (cleanName.isEmpty())
-            cleanName = resourceName.upToLastOccurrenceOf("_wav", false, false);
-
-        ParsedSampleName parsed;
-        if (!parseSampleName(sampleIdentifier, parsed)
-            && !parseSampleName(resourceName, parsed))
-        {
-            DBG("  Skipped: invalid sample name pattern from '" << sampleIdentifier
-                << "' / '" << resourceName << "' (expected note[_vX][_nY])");
-            continue;
-        }
-
-        const int midiNote = 48 + parsed.noteIndex - 1; // 1 -> MIDI 48 (C2 in many DAWs), 2 -> 49, etc.
+        const int mappedNoteIndex = getMappedNoteIndex(parsed, maxPitchIndexByNoteIndex);
+        const int midiNote = 48 + mappedNoteIndex - 1; // 1 -> MIDI 48 (C2 in many DAWs), 2 -> 49, etc.
         if (midiNote < 0 || midiNote > 127)
         {
-            DBG("  Skipped: note out of MIDI range, noteIndex=" << parsed.noteIndex << ", midiNote=" << midiNote);
+            DBG("  Skipped: note out of MIDI range, noteIndex=" << parsed.noteIndex
+                << ", pitch=" << parsed.pitchIndex
+                << ", mappedNoteIndex=" << mappedNoteIndex
+                << ", midiNote=" << midiNote);
             continue;
         }
 
         DBG("  Parsed noteIndex=" << parsed.noteIndex
             << ", vGroup=" << parsed.velocityGroupIndex
             << ", variation=" << parsed.variationIndex
+            << ", pitch=" << parsed.pitchIndex
+            << ", mappedNoteIndex=" << mappedNoteIndex
             << ", midiNote=" << midiNote);
 
         auto* sound = new MetaSamplerSound(
-            cleanName,
+            sampleResource.cleanName,
             *reader,
             juce::BigInteger().setRange(midiNote, 1, true),
             midiNote,
@@ -236,7 +311,7 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
                                      midiNote,
                                      parsed.velocityGroupIndex,
                                      parsed.variationIndex);
-        DBG("  Added MetaSamplerSound for " << cleanName);
+        DBG("  Added MetaSamplerSound for " << sampleResource.cleanName);
     }
 
     sampler.finalizeLayerMappings();

@@ -20,6 +20,11 @@ Primary plugin format:
 - VST3
 - AU
 
+Project-specific implementation reference:
+
+- Before changing ULICHPERC sample loading, velocity layers, playback, warp,
+  transient metadata, parameters, or `processBlock`, read `ULICHPERC.md`.
+
 ---
 
 ## Core Principles
