@@ -1,4 +1,4 @@
-#include "MetaSamplerSound.h"
+#include "PercussionSound.h"
 #include <rubberband/RubberBandStretcher.h>
 #include <array>
 #include <chrono>
@@ -16,7 +16,7 @@ namespace
     }
 }
 
-MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
+PercussionSound::PercussionSound(const juce::String& soundName,
                                    juce::AudioFormatReader& source,
                                    const juce::BigInteger& notes,
                                    int midiNoteForNormalPitch,
@@ -56,7 +56,7 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
 
     if (std::abs(metadata->sampleRate - sourceSampleRate) > 1.0)
     {
-        DBG("MetaSamplerSound: metadata sampleRate (" << metadata->sampleRate
+        DBG("PercussionSound: metadata sampleRate (" << metadata->sampleRate
             << ") differs from audio sampleRate (" << sourceSampleRate
             << ") for " << wavResourceNameForMetadata
             << ". Warp processing will use audio sample rate.");
@@ -70,7 +70,7 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
 
     warpEnabled = metadata->warp;
 
-    DBG("MetaSamplerSound: metadata prepared for " << wavResourceNameForMetadata
+    DBG("PercussionSound: metadata prepared for " << wavResourceNameForMetadata
         << " (hasTransientJson=" << (metadata->hasTransientJson ? "true" : "false")
         << ", sampleRate=" << metadata->sampleRate
         << ", lengthSec=" << metadata->lengthSec
@@ -80,13 +80,13 @@ MetaSamplerSound::MetaSamplerSound(const juce::String& soundName,
         << ", warp=" << (metadata->warp ? "true" : "false") << ")");
 }
 
-double MetaSamplerSound::quantizeWarpBpm(double hostBpm) noexcept
+double PercussionSound::quantizeWarpBpm(double hostBpm) noexcept
 {
     const double safeBpm = juce::jmax(1.0, hostBpm);
     return std::round(safeBpm / warpBpmQuantum) * warpBpmQuantum;
 }
 
-double MetaSamplerSound::warpBaseBpmForHost(double originalBpm, double hostBpm) noexcept
+double PercussionSound::warpBaseBpmForHost(double originalBpm, double hostBpm) noexcept
 {
     const double safeOriginalBpm = juce::jmax(1.0, originalBpm);
     const double safeHostBpm = juce::jmax(1.0, hostBpm);
@@ -96,13 +96,13 @@ double MetaSamplerSound::warpBaseBpmForHost(double originalBpm, double hostBpm) 
     return (safeHostBpm <= 90.0) ? (safeOriginalBpm * 0.5) : safeOriginalBpm;
 }
 
-double MetaSamplerSound::warpTimeRatioForHost(double originalBpm, double hostBpm) noexcept
+double PercussionSound::warpTimeRatioForHost(double originalBpm, double hostBpm) noexcept
 {
     const double safeHostBpm = juce::jmax(1.0, hostBpm);
     return warpBaseBpmForHost(originalBpm, safeHostBpm) / safeHostBpm;
 }
 
-void MetaSamplerSound::setVelocityLayerInfo(int groupIndex,
+void PercussionSound::setVelocityLayerInfo(int groupIndex,
                                             int groupCount,
                                             int minVelocity,
                                             int maxVelocity) noexcept
@@ -115,7 +115,7 @@ void MetaSamplerSound::setVelocityLayerInfo(int groupIndex,
         velocityMax = velocityMin;
 }
 
-void MetaSamplerSound::collectReadyWarpCache() const
+void PercussionSound::collectReadyWarpCache() const
 {
     std::lock_guard<std::mutex> lock(warpCacheMutex);
 
@@ -133,7 +133,7 @@ void MetaSamplerSound::collectReadyWarpCache() const
         warpCache = std::move(readyCache);
 }
 
-std::shared_ptr<MetaSamplerSound::WarpedCache> MetaSamplerSound::getWarpedCache(double hostBpm) const
+std::shared_ptr<PercussionSound::WarpedCache> PercussionSound::getWarpedCache(double hostBpm) const
 {
     if (!warpEnabled || metadata == nullptr)
         return nullptr;
@@ -149,7 +149,7 @@ std::shared_ptr<MetaSamplerSound::WarpedCache> MetaSamplerSound::getWarpedCache(
     return nullptr;
 }
 
-void MetaSamplerSound::requestWarpedCacheBuild(double hostBpm) const
+void PercussionSound::requestWarpedCacheBuild(double hostBpm) const
 {
     if (!warpEnabled || metadata == nullptr)
         return;
@@ -200,7 +200,7 @@ void MetaSamplerSound::requestWarpedCacheBuild(double hostBpm) const
     });
 }
 
-bool MetaSamplerSound::isWarpCacheBuildInFlight() const
+bool PercussionSound::isWarpCacheBuildInFlight() const
 {
     if (!warpEnabled || metadata == nullptr)
         return false;
@@ -214,7 +214,7 @@ bool MetaSamplerSound::isWarpCacheBuildInFlight() const
     return warpCacheFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready;
 }
 
-void MetaSamplerSound::clearWarpedCache() const
+void PercussionSound::clearWarpedCache() const
 {
     collectReadyWarpCache();
     std::lock_guard<std::mutex> lock(warpCacheMutex);
@@ -222,7 +222,7 @@ void MetaSamplerSound::clearWarpedCache() const
     warpCache.reset();
 }
 
-std::unique_ptr<MetaSamplerSound::WarpedCache> MetaSamplerSound::renderWarpedCache(double hostBpm) const
+std::unique_ptr<PercussionSound::WarpedCache> PercussionSound::renderWarpedCache(double hostBpm) const
 {
     if (metadata == nullptr)
         return nullptr;
@@ -323,12 +323,12 @@ std::unique_ptr<MetaSamplerSound::WarpedCache> MetaSamplerSound::renderWarpedCac
     return cache;
 }
 
-bool MetaSamplerSound::appliesToNote(int midiNoteNumber)
+bool PercussionSound::appliesToNote(int midiNoteNumber)
 {
     return midiNotes[midiNoteNumber];
 }
 
-bool MetaSamplerSound::appliesToChannel(int midiChannel)
+bool PercussionSound::appliesToChannel(int midiChannel)
 {
     juce::ignoreUnused(midiChannel);
     return true; // applies to all channels

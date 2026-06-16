@@ -5,14 +5,14 @@
 #include <utility>
 #include <vector>
 
-#include "MetaSamplerSound.h"
+#include "PercussionSound.h"
 
-class LayeredSynthesiser : public juce::Synthesiser
+class PercussionSynthesiser : public juce::Synthesiser
 {
 public:
     void clearLayerMappings();
 
-    void registerLayeredSound(MetaSamplerSound* sound,
+    void registerLayeredSound(PercussionSound* sound,
                               int midiNote,
                               int velocityGroupIndex,
                               int variationIndex);
@@ -26,7 +26,7 @@ public:
 private:
     struct RegisteredSound
     {
-        MetaSamplerSound* sound = nullptr;
+        PercussionSound* sound = nullptr;
         int velocityGroupIndex = 1;
         int variationIndex = 1;
     };
@@ -36,7 +36,7 @@ private:
         int index = 1;
         int minVelocity = 1;
         int maxVelocity = 127;
-        std::vector<MetaSamplerSound*> sounds;
+        std::vector<PercussionSound*> sounds;
     };
 
     struct NoteLayers
@@ -47,7 +47,7 @@ private:
     static std::pair<int, int> computeVelocityRange(int groupIndex, int groupCount) noexcept;
     static int velocityToMidi(float velocity) noexcept;
     static int chooseGroupForVelocity(const NoteLayers& layers, int midiVelocity) noexcept;
-    MetaSamplerSound* chooseVariation(int midiNote,
+    PercussionSound* chooseVariation(int midiNote,
                                       const NoteLayers& layers,
                                       int preferredGroupIdx) noexcept;
 

@@ -75,15 +75,44 @@ set(SourceFiles
         Source/PluginEditor.h
         Source/PluginProcessor.cpp
         Source/PluginProcessor.h
-        Source/CustomLookAndFeel.h
+        Source/UI/BinaryImageLoader.h
+        Source/UI/BinaryImageLoader.cpp
+        Source/UI/RotarySliderRenderer.h
+        Source/UI/RotarySliderRenderer.cpp
+        Source/UI/TempoSyncButtonRenderer.h
+        Source/UI/TempoSyncButtonRenderer.cpp
+        Source/UI/CustomLookAndFeel.h
+        Source/UI/CustomLookAndFeel.cpp
+        Source/Parameters/PluginParameters.h
+        Source/Parameters/PluginParameters.cpp
+        Source/Effects/RzhavProcessor.h
+        Source/Effects/RzhavProcessor.cpp
+        Source/SampleLibrary/SampleNameParser.h
+        Source/SampleLibrary/SampleNameParser.cpp
+        Source/SampleLibrary/PercussionSampleLibrary.h
+        Source/SampleLibrary/PercussionSampleLibrary.cpp
+        Source/Tempo/HostTempoTracker.h
+        Source/Tempo/HostTempoTracker.cpp
+        Source/Warp/WarpCachePrewarmer.h
+        Source/Warp/WarpCachePrewarmer.cpp
+        Source/Playback/NoteStartDeclicker.h
+        Source/Playback/NoteStartDeclicker.cpp
+        Source/Playback/RealtimeWarpPlayer.h
+        Source/Playback/RealtimeWarpPlayer.cpp
+        Source/Playback/SamplePlaybackRenderer.h
+        Source/Playback/SamplePlaybackRenderer.cpp
+        Source/Playback/SustainTailShaper.h
+        Source/Playback/SustainTailShaper.cpp
+        Source/Playback/VelocityLayerGain.h
+        Source/Playback/VelocityLayerGain.cpp
         Source/SampleMetadata.h
         Source/SampleMetadata.cpp
-        Source/LayeredSynthesiser.h
-        Source/LayeredSynthesiser.cpp
-        Source/MetaSamplerSound.h
-        Source/MetaSamplerSound.cpp
-        Source/MetaSamplerVoice.h
-        Source/MetaSamplerVoice.cpp
+        Source/PercussionSynthesiser.h
+        Source/PercussionSynthesiser.cpp
+        Source/PercussionSound.h
+        Source/PercussionSound.cpp
+        Source/PercussionVoice.h
+        Source/PercussionVoice.cpp
 )
 
 if (WIN32)
@@ -126,13 +155,13 @@ target_sources(${PROJECT_NAME} PRIVATE
 # Headers live in external/rubberband/rubberband/...
 # so we add external/rubberband to include path.
 target_include_directories(${PROJECT_NAME} PRIVATE
+    ${CMAKE_CURRENT_SOURCE_DIR}/Source
     ${RB_DIR}
 )
 
 # These are some toggleable options from the JUCE CMake API
 target_compile_definitions(${PROJECT_NAME}
     PUBLIC
-        ULICHPERC_DISABLE_WARP_CACHE=0
         NOMINMAX=1
         JUCE_WEB_BROWSER=0
         JUCE_USE_CURL=0

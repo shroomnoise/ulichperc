@@ -4,6 +4,18 @@
 
 class CustomLookAndFeel;
 
+class ImageKnobSlider final : public juce::Slider
+{
+public:
+    bool hitTest(int x, int y) override
+    {
+        const auto bounds = getLocalBounds().toFloat();
+        const auto centre = bounds.getCentre();
+        const auto radius = 0.5f * juce::jmin(bounds.getWidth(), bounds.getHeight());
+        return centre.getDistanceFrom({ static_cast<float>(x), static_cast<float>(y) }) <= radius;
+    }
+};
+
 //==============================================================================
 class AudioPluginAudioProcessorEditor final : public juce::AudioProcessorEditor
 {
@@ -16,8 +28,10 @@ public:
     void resized() override;
     // juce::Slider bitDepthSlider;
     // juce::Slider sampleRateSlider;
-    juce::Slider rzhavSlider;
-    juce::Slider sustainSlider;
+    ImageKnobSlider rzhavSlider;
+    ImageKnobSlider sustainSlider;
+    juce::Label rzhavLabel;
+    juce::Label sustainLabel;
     juce::ToggleButton warpButton;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> rzhavAttachment;
 
@@ -25,7 +39,6 @@ public:
     // std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sampleRateAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sustainAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> warpAttachment;
-    juce::Image bgImage;
 
 private:
     // This reference is provided as a quick way for your editor to

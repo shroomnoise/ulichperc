@@ -1,16 +1,16 @@
-#include "LayeredSynthesiser.h"
+#include "PercussionSynthesiser.h"
 
 #include <algorithm>
 #include <cmath>
 
-void LayeredSynthesiser::clearLayerMappings()
+void PercussionSynthesiser::clearLayerMappings()
 {
     registeredByMidiNote.clear();
     noteLayers.clear();
     lastVariationIndexByNote.clear();
 }
 
-void LayeredSynthesiser::registerLayeredSound(MetaSamplerSound* sound,
+void PercussionSynthesiser::registerLayeredSound(PercussionSound* sound,
                                               int midiNote,
                                               int velocityGroupIndex,
                                               int variationIndex)
@@ -26,7 +26,7 @@ void LayeredSynthesiser::registerLayeredSound(MetaSamplerSound* sound,
     registeredByMidiNote[midiNote].push_back(item);
 }
 
-std::pair<int, int> LayeredSynthesiser::computeVelocityRange(int groupIndex, int groupCount) noexcept
+std::pair<int, int> PercussionSynthesiser::computeVelocityRange(int groupIndex, int groupCount) noexcept
 {
     groupIndex = juce::jlimit(1, juce::jmax(1, groupCount), groupIndex);
     groupCount = juce::jmax(1, groupCount);
@@ -59,7 +59,7 @@ std::pair<int, int> LayeredSynthesiser::computeVelocityRange(int groupIndex, int
     return { minVelocity, maxVelocity };
 }
 
-void LayeredSynthesiser::finalizeLayerMappings()
+void PercussionSynthesiser::finalizeLayerMappings()
 {
     noteLayers.clear();
     lastVariationIndexByNote.clear();
@@ -113,13 +113,13 @@ void LayeredSynthesiser::finalizeLayerMappings()
     }
 }
 
-int LayeredSynthesiser::velocityToMidi(float velocity) noexcept
+int PercussionSynthesiser::velocityToMidi(float velocity) noexcept
 {
     const float clamped = juce::jlimit(0.0f, 1.0f, velocity);
     return juce::jlimit(1, 127, (int) std::lround(clamped * 127.0f));
 }
 
-int LayeredSynthesiser::chooseGroupForVelocity(const NoteLayers& layers, int midiVelocity) noexcept
+int PercussionSynthesiser::chooseGroupForVelocity(const NoteLayers& layers, int midiVelocity) noexcept
 {
     if (layers.groups.empty())
         return -1;
@@ -136,7 +136,7 @@ int LayeredSynthesiser::chooseGroupForVelocity(const NoteLayers& layers, int mid
     return (int) layers.groups.size() - 1;
 }
 
-MetaSamplerSound* LayeredSynthesiser::chooseVariation(int midiNote,
+PercussionSound* PercussionSynthesiser::chooseVariation(int midiNote,
                                                       const NoteLayers& layers,
                                                       int preferredGroupIdx) noexcept
 {
@@ -144,7 +144,7 @@ MetaSamplerSound* LayeredSynthesiser::chooseVariation(int midiNote,
         return nullptr;
 
     int resolvedGroupIdx = preferredGroupIdx;
-    const std::vector<MetaSamplerSound*>* pool = &layers.groups[(size_t) preferredGroupIdx].sounds;
+    const std::vector<PercussionSound*>* pool = &layers.groups[(size_t) preferredGroupIdx].sounds;
 
     if (pool->empty())
     {
@@ -198,11 +198,11 @@ MetaSamplerSound* LayeredSynthesiser::chooseVariation(int midiNote,
     return (*pool)[(size_t) choice];
 }
 
-void LayeredSynthesiser::noteOn(int midiChannel, int midiNoteNumber, float velocity)
+void PercussionSynthesiser::noteOn(int midiChannel, int midiNoteNumber, float velocity)
 {
     const juce::ScopedLock sl(lock);
 
-    MetaSamplerSound* selected = nullptr;
+    PercussionSound* selected = nullptr;
 
     const auto it = noteLayers.find(midiNoteNumber);
     if (it != noteLayers.end())

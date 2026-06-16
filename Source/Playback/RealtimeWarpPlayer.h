@@ -1,0 +1,76 @@
+#pragma once
+
+#include <array>
+#include <memory>
+
+#include <juce_audio_basics/juce_audio_basics.h>
+#include <rubberband/RubberBandStretcher.h>
+
+#include "../PercussionSound.h"
+#include "NoteStartDeclicker.h"
+#include "SustainTailShaper.h"
+
+class RealtimeWarpPlayer
+{
+public:
+    struct Result
+    {
+        bool finished = false;
+    };
+
+    bool prepare(double playbackSampleRate, int channelCount);
+    bool start(int sourceStartSample,
+               double sourceStartTimeSec,
+               double timeRatio,
+               double activeSourceSampleRate,
+               double playbackSampleRate,
+               int channelCount);
+
+    void reset();
+    bool isReady() const noexcept { return stretcher != nullptr; }
+
+    Result render(juce::AudioBuffer<float>& outputBuffer,
+                  int startSample,
+                  int numSamples,
+                  const PercussionSound& sound,
+                  const juce::AudioBuffer<float>& source,
+                  double activeSourceSampleRate,
+                  double playbackSampleRate,
+                  double hostBpm,
+                  bool loopWhileHeld,
+                  juce::ADSR& adsr,
+                  float velocityGain,
+                  float sustainAmount,
+                  float sustainMakeupGain,
+                  SustainTailShaper& sustainShaper,
+                  NoteStartDeclicker& declicker);
+
+private:
+    static double makeRubberBandRatio(double musicalTimeRatio,
+                                      double activeSourceSampleRate,
+                                      double playbackSampleRate) noexcept;
+    static double makeRubberBandPitchScale(double activeSourceSampleRate,
+                                           double playbackSampleRate) noexcept;
+
+    void setRubberBandRates(double timeRatio,
+                            double activeSourceSampleRate,
+                            double playbackSampleRate);
+    void resetForLoop(double activeSourceSampleRate,
+                      double playbackSampleRate,
+                      SustainTailShaper& sustainShaper);
+    void ensureBuffers(int channelCount, int sampleCount);
+
+    std::unique_ptr<RubberBand::RubberBandStretcher> stretcher;
+    size_t stretcherSampleRate = 0;
+    int stretcherChannels = 0;
+
+    juce::AudioBuffer<float> inputBuffer;
+    juce::AudioBuffer<float> outputScratch;
+    std::array<const float*, 2> inputPtrs {};
+    std::array<float*, 2> outputPtrs {};
+
+    int sourcePosition = 0;
+    bool ended = false;
+    double currentTimeRatio = 1.0;
+    double outputTimeSec = 0.0;
+};

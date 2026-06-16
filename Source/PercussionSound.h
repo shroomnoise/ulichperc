@@ -8,7 +8,7 @@
 
 #include "SampleMetadata.h"
 
-class MetaSamplerSound : public juce::SynthesiserSound
+class PercussionSound : public juce::SynthesiserSound
 {
 public:
     struct WarpedCache
@@ -19,15 +19,15 @@ public:
         juce::AudioBuffer<float> buffer;
     };
 
-    MetaSamplerSound(const juce::String& soundName,
-                     juce::AudioFormatReader& source,
-                     const juce::BigInteger& notes,
-                     int midiNoteForNormalPitch,
-                     double attackTimeSeconds,
-                     double releaseTimeSeconds,
-                     double maxSampleLengthSeconds,
-                     const juce::String& wavResourceNameForMetadata,
-                     double originalBpmIn);
+    PercussionSound(const juce::String& soundName,
+                    juce::AudioFormatReader& source,
+                    const juce::BigInteger& notes,
+                    int midiNoteForNormalPitch,
+                    double attackTimeSeconds,
+                    double releaseTimeSeconds,
+                    double maxSampleLengthSeconds,
+                    const juce::String& wavResourceNameForMetadata,
+                    double originalBpmIn);
 
     // SynthesiserSound overrides
     bool appliesToNote (int midiNoteNumber) override;
@@ -58,7 +58,7 @@ public:
     bool isWarpCacheBuildInFlight() const;
     void clearWarpedCache() const;
 
-    // Transient metadata (used by MetaSamplerVoice)
+    // Transient metadata (used by PercussionVoice)
     std::unique_ptr<SampleMetadata> metadata = nullptr;
 
 private:

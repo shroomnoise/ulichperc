@@ -6,14 +6,24 @@ warp, transient handling, parameters, or `processBlock`.
 
 ## Main Source Files
 
-- `Source/PluginProcessor.cpp`: embedded sample loading, sample-name parsing,
-  APVTS parameters, warp-cache prewarming, and `processBlock`.
-- `Source/LayeredSynthesiser.cpp`: velocity-group range calculation, MIDI
+- `Source/PluginProcessor.cpp`: plugin lifecycle, sampler ownership,
+  parameter/state serialization, and `processBlock` orchestration.
+- `Source/Parameters/PluginParameters.cpp`: APVTS parameter IDs and layout.
+- `Source/SampleLibrary/PercussionSampleLibrary.cpp`: embedded BinaryData
+  sample loading and registration with the percussion synthesiser.
+- `Source/SampleLibrary/SampleNameParser.cpp`: sample-name parsing.
+- `Source/PercussionSynthesiser.cpp`: velocity-group range calculation, MIDI
   velocity to group selection, and variation selection.
-- `Source/MetaSamplerSound.cpp`: sample storage, transient metadata ownership,
+- `Source/PercussionSound.cpp`: sample storage, transient metadata ownership,
   velocity-layer metadata, and offline warp-cache rendering.
-- `Source/MetaSamplerVoice.cpp`: note-start playback setup, velocity gain,
+- `Source/PercussionVoice.cpp`: note-start playback setup, velocity gain,
   warp playback paths, transient/sustain shaping, and per-sample rendering.
+- `Source/Tempo/HostTempoTracker.cpp`: host BPM/transport and BPM-motion
+  tracking.
+- `Source/Warp/WarpCachePrewarmer.cpp`: warp-cache prewarm debounce, retry,
+  concurrency, and cache clearing.
+- `Source/Effects/RzhavProcessor.cpp`: `Rzhavchina` bit-depth and sample-rate
+  reduction effect.
 - `Source/SampleMetadata.cpp`: transient JSON lookup and parsing.
 - `CMakeLists.txt`: plugin target, formats, BinaryData resources, JUCE, and
   RubberBand integration.
@@ -23,17 +33,19 @@ warp, transient handling, parameters, or `processBlock`.
 Samples are embedded from `samples/*.wav` through `juce_add_binary_data`.
 Files such as `*.wav.asd` are not embedded by the current CMake glob.
 
-The sample parser accepts a numeric note token followed by optional `vX` and
-`nY` tokens. Example: `1_v2_n3.wav`.
+The sample parser accepts a numeric note token followed by optional `vX`, `nY`,
+and `pZ` tokens. Example: `1_v2_n3_p1.wav`.
 
 - `N` is the note index.
 - `vX` is the velocity group index. Missing `vX` defaults to group `1`.
 - `nY` is the variation index. Missing `nY` defaults to variation `1`.
-- Duplicate `v` or `n` tokens, non-positive values, or unknown tokens cause the
-  sample to be skipped.
+- `pZ` is the pitch slot index. Missing `pZ` defaults to pitch slot `1`.
+- Duplicate `v`, `n`, or `p` tokens, non-positive values, or unknown tokens
+  cause the sample to be skipped.
 - `samples_` prefixes from BinaryData resource names are stripped before
   parsing.
-- MIDI note mapping is `midiNote = 48 + noteIndex - 1`.
+- MIDI note mapping starts at `midiNote = 48 + mappedNoteIndex - 1`, where
+  pitch slots expand the note map before the final MIDI note is assigned.
 
 ## Current Velocity Layer Inventory
 
@@ -88,7 +100,7 @@ The code does not crossfade between velocity groups. It selects a single group
 from the MIDI velocity, picks one variation from that group, then applies a gain
 ramp within the selected group's velocity range.
 
-Current formula from `MetaSamplerVoice::startNote`:
+Current formula from `PercussionVoice::startNote`:
 
 ```cpp
 t = groupMax > groupMin
@@ -138,11 +150,13 @@ Host-visible parameters are APVTS parameters and are serialized through
 
 ## ProcessBlock Notes
 
-`processBlock` clears the output buffer, updates host BPM/transport state,
-prewarms warp caches when tempo sync is enabled and transport is running,
-renders the sampler, then optionally applies `Rzhavchina`.
+`processBlock` clears the output buffer, updates host BPM/transport state via
+`HostTempoTracker`, prewarms warp caches through `WarpCachePrewarmer` when
+tempo sync is enabled and transport is running, renders the sampler, then runs
+the current effect processors.
 
-`Rzhavchina` is a true bypass at `0`. Above `0`, it maps:
+`Rzhavchina` is implemented in `RzhavProcessor` and is a true bypass at `0`.
+Above `0`, it maps:
 
 - bit depth from `12` bits down to `8` bits;
 - target sample rate from `21 kHz` down to `9 kHz`, clamped by host sample rate.
@@ -172,7 +186,7 @@ Warp behavior:
 - For host tempos `<= 90 BPM`, the warp base uses half-time
   (`originalBpm * 0.5`).
 - Warp BPM is quantized to `0.01 BPM`.
-- Offline warp caches are enabled by `ULICHPERC_DISABLE_WARP_CACHE=0`.
+- Offline warp caches are always enabled.
 - Cache prewarming is debounced by `0.12 s`, retries every `0.03 s`, and limits
   concurrent builds to `2`.
 

@@ -1,42 +1,62 @@
 #include "PluginProcessor.h"
 #include "PluginEditor.h"
-#include "CustomLookAndFeel.h"
+#include "Parameters/PluginParameters.h"
+#include "UI/CustomLookAndFeel.h"
+
+namespace
+{
+void configureKnobLabel(juce::Label& label, const juce::String& text)
+{
+    label.setText(text, juce::dontSendNotification);
+    label.setJustificationType(juce::Justification::centred);
+    label.setColour(juce::Label::textColourId, juce::Colours::black);
+    label.setFont(juce::Font(juce::FontOptions(15.0f)));
+    label.setInterceptsMouseClicks(false, false);
+}
+}
 
 //==============================================================================
 AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAudioProcessor& p)
-    : AudioProcessorEditor (&p), processorRef (p)
+    : AudioProcessorEditor (&p),
+      processorRef (p)
 {
     juce::ignoreUnused (processorRef);
     setSize (900, 600);
 
-    bgImage = juce::ImageCache::getFromMemory(BinaryData::bg_png, BinaryData::bg_pngSize);
     customLNF = std::make_unique<CustomLookAndFeel>();
 
     addAndMakeVisible(rzhavSlider);
-    rzhavSlider.setComponentID("rzhavSlider");
+    rzhavSlider.setComponentID(PluginUI::rzhavSliderId);
     rzhavSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
     rzhavSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     rzhavSlider.setLookAndFeel(customLNF.get());
     rzhavSlider.setDoubleClickReturnValue(true, 0.0);
     rzhavSlider.setMouseDragSensitivity(150);
     rzhavAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-    processorRef.parameters, "rzhavchina", rzhavSlider);
+    processorRef.parameters, PluginParameters::rzhavchinaId, rzhavSlider);
+
+    addAndMakeVisible(rzhavLabel);
+    configureKnobLabel(rzhavLabel, "Rzhavchina");
 
     addAndMakeVisible(sustainSlider);
-    sustainSlider.setComponentID("sustainSlider");
+    sustainSlider.setComponentID(PluginUI::sustainSliderId);
     sustainSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
     sustainSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
     sustainSlider.setLookAndFeel(customLNF.get());
     sustainSlider.setDoubleClickReturnValue(true, 0.0);
     sustainSlider.setMouseDragSensitivity(150);
     sustainAttachment = std::make_unique<juce::AudioProcessorValueTreeState::SliderAttachment>(
-    processorRef.parameters, "sustainShorten", sustainSlider);
+    processorRef.parameters, PluginParameters::sustainShortenId, sustainSlider);
+
+    addAndMakeVisible(sustainLabel);
+    configureKnobLabel(sustainLabel, "Pomyatost");
 
     addAndMakeVisible(warpButton);
+    warpButton.setComponentID(PluginUI::tempoSyncButtonId);
     warpButton.setButtonText({});
     warpButton.setLookAndFeel(customLNF.get());
     warpAttachment = std::make_unique<juce::AudioProcessorValueTreeState::ButtonAttachment>(
-    processorRef.parameters, "warpEnabled", warpButton);
+    processorRef.parameters, PluginParameters::warpEnabledId, warpButton);
 }
 
 AudioPluginAudioProcessorEditor::~AudioPluginAudioProcessorEditor()
@@ -51,18 +71,35 @@ AudioPluginAudioProcessorEditor::~AudioPluginAudioProcessorEditor()
 //==============================================================================
 void AudioPluginAudioProcessorEditor::paint (juce::Graphics& g)
 {
-    if (bgImage.isValid())
-        g.drawImage(bgImage, getLocalBounds().toFloat());
-    else
-        g.fillAll(juce::Colours::black);
+    g.fillAll(juce::Colours::white);
 }
 
 void AudioPluginAudioProcessorEditor::resized()
 {
-    constexpr int controlWidth = 200;
-    constexpr int controlHeight = 200;
+    constexpr int knobSize = 47;
+    constexpr int labelWidth = 96;
+    constexpr int labelHeight = 22;
+    constexpr int labelGap = 32;
 
-    rzhavSlider.setBounds(68, -140, 380, 900);
-    sustainSlider.setBounds(549, 183, controlWidth, controlHeight);
+    const auto placeKnobWithLabel = [=] (juce::Slider& slider,
+                                         juce::Label& label,
+                                         int labelLeft,
+                                         int knobCentreY)
+    {
+        const int knobCentreX = labelLeft + labelWidth / 2;
+
+        slider.setBounds(knobCentreX - knobSize / 2,
+                         knobCentreY - knobSize / 2,
+                         knobSize,
+                         knobSize);
+
+        label.setBounds(labelLeft,
+                        knobCentreY + knobSize / 2 + labelGap,
+                        labelWidth,
+                        labelHeight);
+    };
+
+    placeKnobWithLabel(rzhavSlider, rzhavLabel, 0, 222);
+    placeKnobWithLabel(sustainSlider, sustainLabel, 81, 222);
     warpButton.setBounds(23, 18, 170, 110);
 }
