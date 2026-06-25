@@ -2,6 +2,11 @@
 
 namespace PluginParameters
 {
+    bool isSampleSpecificParameterId(const juce::String& parameterId)
+    {
+        return parameterId == samplePitchSemitonesId;
+    }
+
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout()
     {
         juce::AudioProcessorValueTreeState::ParameterLayout layout;
@@ -19,7 +24,13 @@ namespace PluginParameters
                    std::make_unique<juce::AudioParameterBool>(
                        warpEnabledId,
                        "Tempo sync",
-                       true));
+                       true),
+                   std::make_unique<juce::AudioParameterFloat>(
+                       samplePitchSemitonesId,
+                       "Pitch",
+                       juce::NormalisableRange<float>(samplePitchSemitonesMinimum,
+                                                       samplePitchSemitonesMaximum),
+                       samplePitchSemitonesDefault));
 
         return layout;
     }

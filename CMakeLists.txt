@@ -83,8 +83,16 @@ set(SourceFiles
         Source/UI/TempoSyncButtonRenderer.cpp
         Source/UI/CustomLookAndFeel.h
         Source/UI/CustomLookAndFeel.cpp
+        Source/UI/SampleGroupSelector.h
+        Source/UI/SampleGroupSelector.cpp
         Source/Parameters/PluginParameters.h
         Source/Parameters/PluginParameters.cpp
+        Source/Parameters/SampleSpecificParameterState.h
+        Source/Parameters/SampleSpecificParameterState.cpp
+        Source/Parameters/SampleSpecificPitchCache.h
+        Source/Parameters/SampleSpecificPitchCache.cpp
+        Source/Midi/MidiNoteActivityState.h
+        Source/Midi/MidiNoteActivityState.cpp
         Source/Effects/RzhavProcessor.h
         Source/Effects/RzhavProcessor.cpp
         Source/SampleLibrary/SampleNameParser.h

@@ -2,7 +2,19 @@
 
 #include "PercussionSynthesiser.h"
 
+#include <vector>
+
 namespace PercussionSampleLibrary
 {
-    void loadEmbeddedSamples(PercussionSynthesiser& sampler, double originalBpm);
+    struct SampleGroupInfo
+    {
+        int noteIndex = 0;
+        int pitchIndex = 1;
+        int mappedNoteIndex = 0;
+        int midiNote = 0;
+    };
+
+    void loadEmbeddedSamples(PercussionSynthesiser& sampler,
+                             double originalBpm,
+                             std::vector<SampleGroupInfo>* loadedSampleGroups = nullptr);
 }

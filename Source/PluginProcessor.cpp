@@ -9,6 +9,24 @@ namespace
 {
     constexpr int percussionVoiceCount = 8;
     constexpr double percussionOriginalBpm = 153.0;
+
+    const juce::Identifier selectedSampleGroupIndexProperty { "selectedSampleGroupIndex" };
+    const juce::Identifier selectedSampleGroupNoteIndexProperty { "selectedSampleGroupNoteIndex" };
+    const juce::Identifier selectedSampleGroupPitchIndexProperty { "selectedSampleGroupPitchIndex" };
+
+    int findSampleGroupIndexForKey(const std::vector<PercussionSampleLibrary::SampleGroupInfo>& groups,
+                                   int noteIndex,
+                                   int pitchIndex) noexcept
+    {
+        for (int i = 0; i < static_cast<int>(groups.size()); ++i)
+        {
+            const auto& group = groups[(size_t) i];
+            if (group.noteIndex == noteIndex && group.pitchIndex == pitchIndex)
+                return i;
+        }
+
+        return -1;
+    }
 }
 
 AudioPluginAudioProcessor::AudioPluginAudioProcessor()
@@ -25,7 +43,9 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
     addPercussionVoices();
     DBG("Added " << sampler.getNumVoices() << " sampler voices");
 
-    PercussionSampleLibrary::loadEmbeddedSamples(sampler, percussionOriginalBpm);
+    PercussionSampleLibrary::loadEmbeddedSamples(sampler, percussionOriginalBpm, &sampleGroups);
+    clampSelectedSampleGroupIndex();
+    rebuildSamplePitchCache();
     DBG("=== Constructor done ===");
 }
 
@@ -38,6 +58,7 @@ void AudioPluginAudioProcessor::addPercussionVoices()
         v->setWarpEnabledParam(&warpEnabledAtomic);
         v->setHostBpmParam(hostTempo.getBpmAtomic());
         v->setHostBpmMovingParam(hostTempo.getMovingAtomic());
+        v->setSamplePitchCache(&samplePitchCache);
         sampler.addVoice(v);
     }
 }
@@ -52,7 +73,109 @@ void AudioPluginAudioProcessor::updateVoiceSharedState()
             v->setWarpEnabledParam(&warpEnabledAtomic);
             v->setHostBpmParam(hostTempo.getBpmAtomic());
             v->setHostBpmMovingParam(hostTempo.getMovingAtomic());
+            v->setSamplePitchCache(&samplePitchCache);
         }
+    }
+}
+
+const std::vector<PercussionSampleLibrary::SampleGroupInfo>& AudioPluginAudioProcessor::getSampleGroups() const noexcept
+{
+    return sampleGroups;
+}
+
+int AudioPluginAudioProcessor::getSelectedSampleGroupIndex() const noexcept
+{
+    return selectedSampleGroupIndex.load(std::memory_order_relaxed);
+}
+
+void AudioPluginAudioProcessor::setSelectedSampleGroupIndex(int groupIndex) noexcept
+{
+    if (sampleGroups.empty())
+    {
+        selectedSampleGroupIndex.store(-1, std::memory_order_relaxed);
+        return;
+    }
+
+    selectedSampleGroupIndex.store(juce::jlimit(0,
+                                                static_cast<int>(sampleGroups.size()) - 1,
+                                                groupIndex),
+                                   std::memory_order_relaxed);
+}
+
+float AudioPluginAudioProcessor::getMidiNoteActivityVelocity(int midiNote) const noexcept
+{
+    return midiNoteActivity.getVelocityForMidiNote(midiNote);
+}
+
+uint32_t AudioPluginAudioProcessor::getMidiNoteActivityGeneration(int midiNote) const noexcept
+{
+    return midiNoteActivity.getGenerationForMidiNote(midiNote);
+}
+
+float AudioPluginAudioProcessor::getSampleSpecificParameterValue(const juce::String& parameterId,
+                                                                 float fallbackValue) const
+{
+    if (!PluginParameters::isSampleSpecificParameterId(parameterId))
+        return fallbackValue;
+
+    const int groupIndex = getSelectedSampleGroupIndex();
+    if (groupIndex < 0 || groupIndex >= static_cast<int>(sampleGroups.size()))
+        return fallbackValue;
+
+    const auto& sampleGroup = sampleGroups[(size_t) groupIndex];
+
+    return sampleSpecificParameters.getValue(parameterId, sampleGroup, groupIndex, fallbackValue);
+}
+
+void AudioPluginAudioProcessor::setSampleSpecificParameterValue(const juce::String& parameterId,
+                                                                float value)
+{
+    if (!PluginParameters::isSampleSpecificParameterId(parameterId))
+        return;
+
+    const int groupIndex = getSelectedSampleGroupIndex();
+    if (groupIndex < 0 || groupIndex >= static_cast<int>(sampleGroups.size()))
+        return;
+
+    const auto& sampleGroup = sampleGroups[(size_t) groupIndex];
+
+    sampleSpecificParameters.setValue(parameterId, sampleGroup, groupIndex, value);
+
+    if (parameterId == PluginParameters::samplePitchSemitonesId)
+        updateSamplePitchCacheForGroup(groupIndex, value);
+}
+
+void AudioPluginAudioProcessor::clampSelectedSampleGroupIndex() noexcept
+{
+    setSelectedSampleGroupIndex(getSelectedSampleGroupIndex());
+}
+
+void AudioPluginAudioProcessor::updateSamplePitchCacheForGroup(int groupIndex, float value) noexcept
+{
+    if (groupIndex < 0 || groupIndex >= static_cast<int>(sampleGroups.size()))
+        return;
+
+    const auto& sampleGroup = sampleGroups[(size_t) groupIndex];
+    const float limitedValue = juce::jlimit(PluginParameters::samplePitchSemitonesMinimum,
+                                           PluginParameters::samplePitchSemitonesMaximum,
+                                           value);
+    samplePitchCache.setPitchSemitonesForMidiNote(sampleGroup.midiNote, limitedValue);
+}
+
+void AudioPluginAudioProcessor::rebuildSamplePitchCache()
+{
+    samplePitchCache.reset();
+
+    for (int groupIndex = 0; groupIndex < static_cast<int>(sampleGroups.size()); ++groupIndex)
+    {
+        const auto& sampleGroup = sampleGroups[(size_t) groupIndex];
+        const float value = sampleSpecificParameters.getValue(
+            PluginParameters::samplePitchSemitonesId,
+            sampleGroup,
+            groupIndex,
+            PluginParameters::samplePitchSemitonesDefault);
+
+        updateSamplePitchCacheForGroup(groupIndex, value);
     }
 }
 
@@ -69,10 +192,14 @@ AudioPluginAudioProcessor::~AudioPluginAudioProcessor()
 
 void AudioPluginAudioProcessor::prepareToPlay(double sampleRate, int samplesPerBlock)
 {
-    juce::ignoreUnused(samplesPerBlock);
     sampler.setCurrentPlaybackSampleRate(sampleRate);
     rzhavProcessor.prepare(sampleRate);
+    midiNoteActivity.reset();
     updateVoiceSharedState();
+
+    for (int i = 0; i < sampler.getNumVoices(); ++i)
+        if (auto* v = dynamic_cast<PercussionVoice*>(sampler.getVoice(i)))
+            v->prepareRealtimeWarpResources(sampleRate, samplesPerBlock);
 }
 
 void AudioPluginAudioProcessor::releaseResources()
@@ -120,6 +247,9 @@ void AudioPluginAudioProcessor::processBlock(juce::AudioBuffer<float>& buffer,
                                   nowSec))
         hostTempo.resetMotion();
 
+    for (const auto metadata : midiMessages)
+        midiNoteActivity.handleMidiMessage(metadata.getMessage());
+
     sampler.renderNextBlock(buffer, midiMessages, 0, buffer.getNumSamples());
 
     float rzhavAmount = 0.0f;
@@ -160,6 +290,17 @@ void AudioPluginAudioProcessor::changeProgramName(int index, const juce::String&
 void AudioPluginAudioProcessor::getStateInformation(juce::MemoryBlock& destData)
 {
     auto state = parameters.copyState();
+    const int selectedIndex = getSelectedSampleGroupIndex();
+    state.setProperty(selectedSampleGroupIndexProperty, selectedIndex, nullptr);
+
+    if (selectedIndex >= 0 && selectedIndex < static_cast<int>(sampleGroups.size()))
+    {
+        const auto& sampleGroup = sampleGroups[(size_t) selectedIndex];
+        state.setProperty(selectedSampleGroupNoteIndexProperty, sampleGroup.noteIndex, nullptr);
+        state.setProperty(selectedSampleGroupPitchIndexProperty, sampleGroup.pitchIndex, nullptr);
+    }
+
+    sampleSpecificParameters.writeToPluginState(state);
 
     if (auto xml = state.createXml())
         copyXmlToBinary(*xml, destData);
@@ -171,7 +312,24 @@ void AudioPluginAudioProcessor::setStateInformation(const void* data, int sizeIn
     {
         if (xml->hasTagName(parameters.state.getType()))
         {
-            parameters.replaceState(juce::ValueTree::fromXml(*xml));
+            auto restoredState = juce::ValueTree::fromXml(*xml);
+            parameters.replaceState(restoredState);
+
+            int restoredSelectedIndex = findSampleGroupIndexForKey(
+                sampleGroups,
+                static_cast<int>(restoredState.getProperty(selectedSampleGroupNoteIndexProperty, -1)),
+                static_cast<int>(restoredState.getProperty(selectedSampleGroupPitchIndexProperty, -1)));
+
+            if (restoredSelectedIndex < 0)
+                restoredSelectedIndex = static_cast<int>(restoredState.getProperty(
+                    selectedSampleGroupIndexProperty,
+                    getSelectedSampleGroupIndex()));
+
+            selectedSampleGroupIndex.store(restoredSelectedIndex, std::memory_order_relaxed);
+            clampSelectedSampleGroupIndex();
+
+            sampleSpecificParameters.restoreFromPluginState(restoredState);
+            rebuildSamplePitchCache();
 
             if (warpParamRaw != nullptr)
             {

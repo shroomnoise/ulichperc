@@ -19,11 +19,20 @@ PluginUI::RotarySliderRendererConfig makeSustainSliderConfig()
     config.maxAngleRadians = juce::degreesToRadians(0.0f);
     return config;
 }
+
+PluginUI::RotarySliderRendererConfig makeSamplePitchSliderConfig()
+{
+    PluginUI::RotarySliderRendererConfig config;
+    config.imageResourceName = "pomyatos_png";
+    config.minAngleRadians = juce::degreesToRadians(-100.0f);
+    config.maxAngleRadians = juce::degreesToRadians(0.0f);
+    return config;
+}
 }
 
 CustomLookAndFeel::CustomLookAndFeel()
 {
-    rotarySliders.reserve(2);
+    rotarySliders.reserve(3);
     rotarySliders.push_back(RotarySliderEntry {
         PluginUI::rzhavSliderId,
         PluginUI::RotarySliderRenderer(makeRzhavSliderConfig())
@@ -31,6 +40,10 @@ CustomLookAndFeel::CustomLookAndFeel()
     rotarySliders.push_back(RotarySliderEntry {
         PluginUI::sustainSliderId,
         PluginUI::RotarySliderRenderer(makeSustainSliderConfig())
+    });
+    rotarySliders.push_back(RotarySliderEntry {
+        PluginUI::samplePitchSliderId,
+        PluginUI::RotarySliderRenderer(makeSamplePitchSliderConfig())
     });
 }
 

@@ -11,6 +11,7 @@ namespace PluginUI
 {
 inline constexpr const char* rzhavSliderId = "rzhavSlider";
 inline constexpr const char* sustainSliderId = "sustainSlider";
+inline constexpr const char* samplePitchSliderId = "samplePitchSlider";
 inline constexpr const char* tempoSyncButtonId = "tempoSyncButton";
 }
 

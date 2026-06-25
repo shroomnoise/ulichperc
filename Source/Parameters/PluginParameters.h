@@ -9,6 +9,13 @@ namespace PluginParameters
     inline constexpr const char* rzhavchinaId = "rzhavchina";
     inline constexpr const char* sustainShortenId = "sustainShorten";
     inline constexpr const char* warpEnabledId = "warpEnabled";
+    inline constexpr const char* samplePitchSemitonesId = "samplePitchSemitones";
+
+    inline constexpr float samplePitchSemitonesMinimum = -8.0f;
+    inline constexpr float samplePitchSemitonesMaximum = 8.0f;
+    inline constexpr float samplePitchSemitonesDefault = 0.0f;
+
+    bool isSampleSpecificParameterId(const juce::String& parameterId);
 
     juce::AudioProcessorValueTreeState::ParameterLayout createParameterLayout();
 }

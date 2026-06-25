@@ -18,13 +18,14 @@ public:
         bool finished = false;
     };
 
-    bool prepare(double playbackSampleRate, int channelCount);
+    bool prepare(double playbackSampleRate, int channelCount, int maxExpectedBlockSize = 4096);
     bool start(int sourceStartSample,
                double sourceStartTimeSec,
                double timeRatio,
                double activeSourceSampleRate,
                double playbackSampleRate,
-               int channelCount);
+               int channelCount,
+               double pitchScaleMultiplier = 1.0);
 
     void reset();
     bool isReady() const noexcept { return stretcher != nullptr; }
@@ -42,6 +43,7 @@ public:
                   float velocityGain,
                   float sustainAmount,
                   float sustainMakeupGain,
+                  double pitchScaleMultiplier,
                   SustainTailShaper& sustainShaper,
                   NoteStartDeclicker& declicker);
 
@@ -50,11 +52,13 @@ private:
                                       double activeSourceSampleRate,
                                       double playbackSampleRate) noexcept;
     static double makeRubberBandPitchScale(double activeSourceSampleRate,
-                                           double playbackSampleRate) noexcept;
+                                           double playbackSampleRate,
+                                           double pitchScaleMultiplier) noexcept;
 
     void setRubberBandRates(double timeRatio,
                             double activeSourceSampleRate,
                             double playbackSampleRate);
+    void setPitchScaleMultiplier(double pitchScaleMultiplier) noexcept;
     void resetForLoop(double activeSourceSampleRate,
                       double playbackSampleRate,
                       SustainTailShaper& sustainShaper);
@@ -72,5 +76,6 @@ private:
     int sourcePosition = 0;
     bool ended = false;
     double currentTimeRatio = 1.0;
+    double currentPitchScaleMultiplier = 1.0;
     double outputTimeSec = 0.0;
 };

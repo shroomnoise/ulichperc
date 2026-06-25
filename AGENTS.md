@@ -97,7 +97,7 @@ A task is complete only if:
   - `std::array`
 - Keep functions small and focused
 - Use clear and explicit naming
-- Avoid "god objects"
+- Avoid "god objects". Move logic in separate classes if it's better for separating responsabilities and code readability
 - Do not refactor unrelated code
 
 ---

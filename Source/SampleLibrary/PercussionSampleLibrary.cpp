@@ -59,8 +59,13 @@ namespace
 
 namespace PercussionSampleLibrary
 {
-    void loadEmbeddedSamples(PercussionSynthesiser& sampler, double originalBpm)
+    void loadEmbeddedSamples(PercussionSynthesiser& sampler,
+                             double originalBpm,
+                             std::vector<SampleGroupInfo>* loadedSampleGroups)
     {
+        if (loadedSampleGroups != nullptr)
+            loadedSampleGroups->clear();
+
         juce::AudioFormatManager formatManager;
         formatManager.registerBasicFormats();
 
@@ -109,6 +114,8 @@ namespace PercussionSampleLibrary
             maxPitchIndex = juce::jmax(maxPitchIndex, parsed.pitchIndex);
         }
 
+        std::map<int, SampleGroupInfo> sampleGroupsByMappedNoteIndex;
+
         for (const auto& sampleResource : sampleResources)
         {
             const auto& resourceName = sampleResource.resourceName;
@@ -150,6 +157,13 @@ namespace PercussionSampleLibrary
                 << ", mappedNoteIndex=" << mappedNoteIndex
                 << ", midiNote=" << midiNote);
 
+            SampleGroupInfo sampleGroup;
+            sampleGroup.noteIndex = parsed.noteIndex;
+            sampleGroup.pitchIndex = parsed.pitchIndex;
+            sampleGroup.mappedNoteIndex = mappedNoteIndex;
+            sampleGroup.midiNote = midiNote;
+            sampleGroupsByMappedNoteIndex.emplace(mappedNoteIndex, sampleGroup);
+
             auto* sound = new PercussionSound(
                 sampleResource.cleanName,
                 *reader,
@@ -170,6 +184,15 @@ namespace PercussionSampleLibrary
         }
 
         sampler.finalizeLayerMappings();
+
+        if (loadedSampleGroups != nullptr)
+        {
+            loadedSampleGroups->reserve(sampleGroupsByMappedNoteIndex.size());
+
+            for (const auto& entry : sampleGroupsByMappedNoteIndex)
+                loadedSampleGroups->push_back(entry.second);
+        }
+
         DBG("Total sampler sounds loaded: " << sampler.getNumSounds());
     }
 }

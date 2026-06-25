@@ -3,7 +3,7 @@
 #include <climits>
 #include <cmath>
 
-bool RealtimeWarpPlayer::prepare(double playbackSampleRate, int channelCount)
+bool RealtimeWarpPlayer::prepare(double playbackSampleRate, int channelCount, int maxExpectedBlockSize)
 {
     const int channels = juce::jlimit(1, 2, channelCount);
     const auto sampleRate = (size_t) juce::jmax(1.0, playbackSampleRate);
@@ -32,6 +32,7 @@ bool RealtimeWarpPlayer::prepare(double playbackSampleRate, int channelCount)
         stretcherChannels = channels;
     }
 
+    ensureBuffers(channels, juce::jmax(4096, maxExpectedBlockSize));
     return stretcher != nullptr;
 }
 
@@ -40,7 +41,8 @@ bool RealtimeWarpPlayer::start(int sourceStartSample,
                                double timeRatio,
                                double activeSourceSampleRate,
                                double playbackSampleRate,
-                               int channelCount)
+                               int channelCount,
+                               double pitchScaleMultiplier)
 {
     if (!prepare(playbackSampleRate, channelCount))
         return false;
@@ -49,6 +51,7 @@ bool RealtimeWarpPlayer::start(int sourceStartSample,
     sourcePosition = juce::jmax(0, sourceStartSample);
     ended = false;
     outputTimeSec = juce::jmax(0.0, sourceStartTimeSec);
+    setPitchScaleMultiplier(pitchScaleMultiplier);
     setRubberBandRates(timeRatio, activeSourceSampleRate, playbackSampleRate);
     ensureBuffers(stretcherChannels, 4096);
     return true;
@@ -62,6 +65,7 @@ void RealtimeWarpPlayer::reset()
     sourcePosition = 0;
     ended = false;
     currentTimeRatio = 1.0;
+    currentPitchScaleMultiplier = 1.0;
     outputTimeSec = 0.0;
 }
 
@@ -78,6 +82,7 @@ RealtimeWarpPlayer::Result RealtimeWarpPlayer::render(juce::AudioBuffer<float>& 
                                                        float velocityGain,
                                                        float sustainAmount,
                                                        float sustainMakeupGain,
+                                                       double pitchScaleMultiplier,
                                                        SustainTailShaper& sustainShaper,
                                                        NoteStartDeclicker& declicker)
 {
@@ -97,8 +102,14 @@ RealtimeWarpPlayer::Result RealtimeWarpPlayer::render(juce::AudioBuffer<float>& 
     }
 
     const double ratio = PercussionSound::warpTimeRatioForHost(sound.getOriginalBpm(), hostBpm);
-    if (std::abs(ratio - currentTimeRatio) > 1e-6)
+    const double oldPitchScaleMultiplier = currentPitchScaleMultiplier;
+    setPitchScaleMultiplier(pitchScaleMultiplier);
+
+    if (std::abs(ratio - currentTimeRatio) > 1e-6
+        || std::abs(oldPitchScaleMultiplier - currentPitchScaleMultiplier) > 1e-6)
+    {
         setRubberBandRates(ratio, activeSourceSampleRate, playbackSampleRate);
+    }
 
     const int channels = juce::jlimit(1, 2, sourceNumChans);
     ensureBuffers(channels, numSamples);
@@ -259,11 +270,12 @@ double RealtimeWarpPlayer::makeRubberBandRatio(double musicalTimeRatio,
 }
 
 double RealtimeWarpPlayer::makeRubberBandPitchScale(double activeSourceSampleRate,
-                                                    double playbackSampleRate) noexcept
+                                                    double playbackSampleRate,
+                                                    double pitchScaleMultiplier) noexcept
 {
     const double sourceSr = juce::jmax(1.0, activeSourceSampleRate);
     const double playbackSr = juce::jmax(1.0, playbackSampleRate);
-    return sourceSr / playbackSr;
+    return (sourceSr / playbackSr) * juce::jmax(1e-9, pitchScaleMultiplier);
 }
 
 void RealtimeWarpPlayer::setRubberBandRates(double timeRatio,
@@ -274,8 +286,15 @@ void RealtimeWarpPlayer::setRubberBandRates(double timeRatio,
         return;
 
     currentTimeRatio = timeRatio;
-    stretcher->setPitchScale(makeRubberBandPitchScale(activeSourceSampleRate, playbackSampleRate));
+    stretcher->setPitchScale(makeRubberBandPitchScale(activeSourceSampleRate,
+                                                      playbackSampleRate,
+                                                      currentPitchScaleMultiplier));
     stretcher->setTimeRatio(makeRubberBandRatio(timeRatio, activeSourceSampleRate, playbackSampleRate));
+}
+
+void RealtimeWarpPlayer::setPitchScaleMultiplier(double pitchScaleMultiplier) noexcept
+{
+    currentPitchScaleMultiplier = juce::jmax(1e-9, pitchScaleMultiplier);
 }
 
 void RealtimeWarpPlayer::resetForLoop(double activeSourceSampleRate,

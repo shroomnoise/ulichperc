@@ -1,6 +1,11 @@
 #pragma once
 
+#include <array>
+#include <cstdint>
+#include <vector>
+
 #include "PluginProcessor.h"
+#include "UI/SampleGroupSelector.h"
 
 class CustomLookAndFeel;
 
@@ -17,7 +22,8 @@ public:
 };
 
 //==============================================================================
-class AudioPluginAudioProcessorEditor final : public juce::AudioProcessorEditor
+class AudioPluginAudioProcessorEditor final : public juce::AudioProcessorEditor,
+                                              private juce::Timer
 {
 public:
     explicit AudioPluginAudioProcessorEditor (AudioPluginAudioProcessor&);
@@ -30,21 +36,43 @@ public:
     // juce::Slider sampleRateSlider;
     ImageKnobSlider rzhavSlider;
     ImageKnobSlider sustainSlider;
+    ImageKnobSlider samplePitchSlider;
     juce::Label rzhavLabel;
     juce::Label sustainLabel;
+    juce::Label samplePitchLabel;
     juce::ToggleButton warpButton;
+    SampleGroupSelector sampleGroupSelector;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> rzhavAttachment;
 
     // std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> bitDepthAttachment;
     // std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sampleRateAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sustainAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> samplePitchAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> warpAttachment;
 
 private:
+    struct SampleSpecificSliderBinding
+    {
+        juce::Slider* slider = nullptr;
+        juce::String parameterId;
+    };
+
+    void bindSliderToParameter(juce::Slider& slider,
+                               const juce::String& parameterId,
+                               std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment>& attachment);
+    void refreshSampleSpecificControls();
+    float getParameterDefaultValue(const juce::String& parameterId) const;
+    void rebuildSampleGroupActivityMap();
+    void timerCallback() override;
+
     // This reference is provided as a quick way for your editor to
     // access the processor object that created it.
     AudioPluginAudioProcessor& processorRef;
     std::unique_ptr<CustomLookAndFeel> customLNF;
+    std::vector<SampleSpecificSliderBinding> sampleSpecificSliderBindings;
+    std::array<int, AudioPluginAudioProcessor::midiNoteActivityCount> sampleGroupIndexByMidiNote {};
+    std::array<uint32_t, AudioPluginAudioProcessor::midiNoteActivityCount> observedMidiNoteActivityGenerations {};
+    bool refreshingSampleSpecificControls = false;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPluginAudioProcessorEditor)
 };

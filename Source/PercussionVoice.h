@@ -7,6 +7,7 @@
 #include "Playback/RealtimeWarpPlayer.h"
 #include "Playback/SamplePlaybackRenderer.h"
 #include "Playback/SustainTailShaper.h"
+#include "Parameters/SampleSpecificPitchCache.h"
 
 // Voice that plays PercussionSound and shortens sustain tails
 // based on transient JSON metadata.
@@ -33,16 +34,35 @@ public:
     void renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                          int startSample,
                          int numSamples) override;
+    void prepareRealtimeWarpResources(double playbackSampleRate, int samplesPerBlock);
     void setHostBpmParam(std::atomic<double>* p) { hostBpmParam = p; }
     void setWarpEnabledParam(std::atomic<bool>* p) { warpEnabledParam = p; }
     void setHostBpmMovingParam(std::atomic<bool>* p) { hostBpmMovingParam = p; }
+    void setSamplePitchCache(const SampleSpecificPitchCache* cache) noexcept { samplePitchCache = cache; }
 
 private:
     void beginPlayback(float velocity);
     void clearActivePlayback();
     void resetWarpFlags();
-    void maybeSwitchWarpCacheToRealtime();
+    void maybeSwitchWarpCacheToRealtime(double effectiveSamplePitchRatio);
+    void maybeSwitchLengthPreservedPitchToRealtime(double effectiveSamplePitchRatio);
+    bool switchToRealtimeWarpFromOriginal(int startSourceSample,
+                                          double sourceTimeSec,
+                                          double timeRatio,
+                                          double sourceSampleRate,
+                                          double playbackSampleRate,
+                                          int channels,
+                                          double samplePitchRatio,
+                                          bool triggerDeclick);
+    double updateWarpLoopPitchDebounce(int numSamples);
+    void resetWarpLoopPitchDebounce(double pitchRatio) noexcept;
+    void updateSampleRendererPitchRatio() noexcept;
     float getSustainAmount() const noexcept;
+    double getCurrentSamplePitchRatio() const noexcept;
+    double getCurrentHostBpm() const noexcept;
+    bool shouldPreserveLengthForPitch() const noexcept;
+    bool shouldDebounceWarpLoopPitch() const noexcept;
+    int getWarpLoopPitchDebounceSampleCount() const noexcept;
 
     PercussionSound* currentSound = nullptr;
     std::shared_ptr<PercussionSound::WarpedCache> activeWarpCache;
@@ -65,6 +85,11 @@ private:
     std::atomic<double>* hostBpmParam = nullptr;
     std::atomic<bool>* warpEnabledParam = nullptr;
     std::atomic<bool>* hostBpmMovingParam = nullptr;
+    const SampleSpecificPitchCache* samplePitchCache = nullptr;
+
+    double appliedWarpLoopPitchRatio = 1.0;
+    double pendingWarpLoopPitchRatio = 1.0;
+    int warpLoopPitchDebounceSamplesRemaining = 0;
 
     bool isWarping = false;
     bool isRealtimeWarping = false;

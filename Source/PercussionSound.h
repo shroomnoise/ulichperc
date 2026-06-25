@@ -36,6 +36,7 @@ public:
     // Audio data access
     const juce::AudioBuffer<float>& getAudioData() const noexcept { return data; }
     double getSourceSampleRate() const noexcept { return sourceSampleRate; }
+    int getMidiRootNote() const noexcept { return midiRootNote; }
     void setVelocityLayerInfo(int groupIndex,
                               int groupCount,
                               int minVelocity,
