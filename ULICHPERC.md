@@ -209,27 +209,47 @@ or loop, but it intentionally changes playback speed and therefore duration.
 
 For sounds whose transient metadata has `warp=true` while tempo sync is enabled,
 non-neutral pitch must preserve duration. Neutral pitch can still use the
-offline warp cache. Non-neutral pitch is routed through `RealtimeWarpPlayer` and
-applied through RubberBand pitch scale.
+offline BPM-only warp cache. Non-neutral pitch on loop metadata can use a lazy
+offline pitch-aware warp cache keyed by `(quantizedBpm, quantizedPitchRatio)`.
+Pitch ratio is quantized to `0.01` semitone before cache lookup/build.
 
 For loop metadata, pitch changes on an already-playing warp-enabled loop are
 debounced in `PercussionVoice` for `0.08 s` before they reach
 `RealtimeWarpPlayer`. A new note still starts immediately with the current pitch
-value. If the loop was using the offline warp cache or normal playback, the
-switch to realtime warp also waits for the debounced pitch value, then resumes
-from the current source position and triggers the note-start declicker.
-`prepareToPlay` pre-prepares realtime warp resources for each voice to reduce
-the chance of allocation when this switch is needed.
+value. After the debounced value changes, the voice first tries the pitch-aware
+cache. If the cache is not ready, the voice requests it lazily and uses
+`RealtimeWarpPlayer` as a temporary fallback from the current source position.
+When the background cache becomes available, the active loop switches from
+realtime warp back to cached playback at the matching source time and triggers
+the note-start declicker.
 
-CPU note: a warped loop with non-neutral pitch is expected to cost more CPU than
-cached warped playback. It cannot use the current offline BPM-only warp cache,
-so it runs RubberBand in realtime mode with dynamic pitch support
-(`OptionPitchHighConsistency`). The debounce reduces repeated `setPitchScale`
-updates and avoids switching into realtime warp while the knob is still moving,
-but it does not remove the steady CPU cost of playing a pitch-shifted warped
-loop. A larger optimization would require pitch-aware offline warp caches, e.g.
-cache by `(quantizedBpm, pitchRatio)` or a coarser pitch grid, with memory and
-prewarm tradeoffs.
+Pitch-aware caches are intentionally not prewarmed. Neutral pitch always uses
+the existing BPM-only cache and does not allocate pitch-cache buffers. Each
+`PercussionSound` stores only one pitch-aware cache at a time. Requesting a
+different non-neutral `(BPM, pitch)` drops the previous stored pitched cache
+before the new background render starts; active voices that already hold the old
+cache keep it alive through their `shared_ptr` until they stop or switch away.
+The cache audio buffers are allocated only when a non-neutral loop pitch is
+actually requested.
+
+Pitch-aware offline rendering must keep loop duration independent of pitch.
+`PercussionSound::renderWarpedCache` sets RubberBand's expected input duration
+from the source sample count and trims/pads the cache buffer to
+`sourceSamples * timeRatio`; do not derive cached loop length from pitch ratio
+or from RubberBand's pitch-dependent returned frame count. RubberBand's offline
+pitch path stretches internally to `timeRatio * pitchRatio` and then resamples
+back, so transient key-frame targets for pitched caches must be authored in that
+internal pre-resample domain (`sourceFrame * timeRatio * pitchRatio`). Writing
+key-frame targets directly as final output frames (`sourceFrame * timeRatio`)
+will make pitched cached loops sound like their tempo changed even when the
+cache buffer length is correct.
+
+CPU note: a warped loop with non-neutral pitch may still briefly cost more CPU
+than cached warped playback while its pitch-aware cache is rendering. During
+that window it runs RubberBand in realtime mode with dynamic pitch support
+(`OptionPitchHighConsistency`). Once the offline pitch-aware cache is ready,
+steady playback returns to `SamplePlaybackRenderer` and avoids the realtime
+RubberBand cost for that cached `(BPM, pitch)` value.
 
 ## Adding Sample-Specific Effects
 
@@ -302,6 +322,8 @@ Warp behavior:
   (`originalBpm * 0.5`).
 - Warp BPM is quantized to `0.01 BPM`.
 - Offline warp caches are always enabled.
+- Pitch-aware warp caches are lazy, loop-only, quantized to `0.01` semitone,
+  and stored as one replaceable pitched cache per sound.
 - Cache prewarming is debounced by `0.12 s`, retries every `0.03 s`, and limits
   concurrent builds to `2`.
 

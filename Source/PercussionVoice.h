@@ -44,8 +44,21 @@ private:
     void beginPlayback(float velocity);
     void clearActivePlayback();
     void resetWarpFlags();
+    void maybeSwitchToReadyWarpCache(double effectiveSamplePitchRatio);
     void maybeSwitchWarpCacheToRealtime(double effectiveSamplePitchRatio);
     void maybeSwitchLengthPreservedPitchToRealtime(double effectiveSamplePitchRatio);
+    bool tryUseWarpCache(double hostBpm,
+                         double samplePitchRatio,
+                         double sourceTimeSec,
+                         bool requestIfMissing,
+                         bool triggerDeclick);
+    bool switchToWarpCache(std::shared_ptr<PercussionSound::WarpedCache> cache,
+                           double sourceTimeSec,
+                           double playbackSampleRate,
+                           bool triggerDeclick);
+    bool switchToOriginalPlaybackFromSourceTime(double sourceTimeSec,
+                                                double playbackSampleRate,
+                                                bool triggerDeclick);
     bool switchToRealtimeWarpFromOriginal(int startSourceSample,
                                           double sourceTimeSec,
                                           double timeRatio,
@@ -60,8 +73,11 @@ private:
     float getSustainAmount() const noexcept;
     double getCurrentSamplePitchRatio() const noexcept;
     double getCurrentHostBpm() const noexcept;
+    double getCurrentOriginalSourceTimeSec() const noexcept;
+    bool shouldTimeWarpForCurrentHost() const noexcept;
     bool shouldPreserveLengthForPitch() const noexcept;
     bool shouldDebounceWarpLoopPitch() const noexcept;
+    bool shouldUsePitchWarpCache(double samplePitchRatio) const noexcept;
     int getWarpLoopPitchDebounceSampleCount() const noexcept;
 
     PercussionSound* currentSound = nullptr;

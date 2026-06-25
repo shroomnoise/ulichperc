@@ -29,6 +29,7 @@ public:
 
     void reset();
     bool isReady() const noexcept { return stretcher != nullptr; }
+    double getCurrentSourceTimeSec() const noexcept { return outputTimeSec; }
 
     Result render(juce::AudioBuffer<float>& outputBuffer,
                   int startSample,

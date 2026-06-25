@@ -9,10 +9,30 @@ namespace
 {
     constexpr double warpBpmQuantum = 0.01;
     constexpr double warpBpmMatchEpsilon = 0.005;
+    constexpr double warpPitchSemitoneQuantum = 0.01;
+    constexpr double warpPitchMatchEpsilon = 1.0e-7;
 
     bool bpmMatches(double a, double b) noexcept
     {
         return std::abs(a - b) <= warpBpmMatchEpsilon;
+    }
+
+    bool pitchMatches(double a, double b) noexcept
+    {
+        return std::abs(a - b) <= warpPitchMatchEpsilon;
+    }
+
+    bool isNeutralPitchRatio(double ratio) noexcept
+    {
+        return std::abs(ratio - 1.0) < 1.0e-5;
+    }
+
+    bool cacheMatches(const PercussionSound::WarpedCache& cache,
+                      double bpm,
+                      double pitchRatio) noexcept
+    {
+        return bpmMatches(cache.bpm, bpm)
+            && pitchMatches(cache.pitchRatio, pitchRatio);
     }
 }
 
@@ -86,6 +106,19 @@ double PercussionSound::quantizeWarpBpm(double hostBpm) noexcept
     return std::round(safeBpm / warpBpmQuantum) * warpBpmQuantum;
 }
 
+double PercussionSound::quantizeWarpPitchRatio(double pitchRatio) noexcept
+{
+    const double safePitchRatio = juce::jmax(1.0e-9, pitchRatio);
+    const double semitones = 12.0 * std::log2(safePitchRatio);
+    const double quantizedSemitones = std::round(semitones / warpPitchSemitoneQuantum)
+                                    * warpPitchSemitoneQuantum;
+
+    if (std::abs(quantizedSemitones) < warpPitchSemitoneQuantum * 0.5)
+        return 1.0;
+
+    return std::pow(2.0, quantizedSemitones / 12.0);
+}
+
 double PercussionSound::warpBaseBpmForHost(double originalBpm, double hostBpm) noexcept
 {
     const double safeOriginalBpm = juce::jmax(1.0, originalBpm);
@@ -127,75 +160,137 @@ void PercussionSound::collectReadyWarpCache() const
 
     auto readyCache = warpCacheFuture.get();
     const bool shouldPublish = (pendingWarpCacheBpm > 0.0);
+    const bool isPitchedCache = !isNeutralPitchRatio(pendingWarpCachePitchRatio);
     pendingWarpCacheBpm = 0.0;
+    pendingWarpCachePitchRatio = 1.0;
 
     if (shouldPublish && readyCache)
-        warpCache = std::move(readyCache);
+    {
+        if (isPitchedCache)
+            storePitchedWarpCacheLocked(std::move(readyCache));
+        else
+            warpCache = std::move(readyCache);
+    }
 }
 
 std::shared_ptr<PercussionSound::WarpedCache> PercussionSound::getWarpedCache(double hostBpm) const
+{
+    return getWarpedCache(hostBpm, 1.0);
+}
+
+std::shared_ptr<PercussionSound::WarpedCache> PercussionSound::getWarpedCache(double hostBpm,
+                                                                              double pitchRatio) const
 {
     if (!warpEnabled || metadata == nullptr)
         return nullptr;
 
     const double bpm = quantizeWarpBpm(hostBpm);
+    const double pitch = quantizeWarpPitchRatio(pitchRatio);
     collectReadyWarpCache();
 
     std::lock_guard<std::mutex> lock(warpCacheMutex);
 
-    if (warpCache && bpmMatches(warpCache->bpm, bpm))
-        return warpCache;
+    if (isNeutralPitchRatio(pitch))
+    {
+        if (warpCache && cacheMatches(*warpCache, bpm, 1.0))
+            return warpCache;
+
+        return nullptr;
+    }
+
+    if (pitchedWarpCache && cacheMatches(*pitchedWarpCache, bpm, pitch))
+        return pitchedWarpCache;
 
     return nullptr;
 }
 
+void PercussionSound::storePitchedWarpCacheLocked(std::shared_ptr<WarpedCache> cache) const
+{
+    if (!cache)
+        return;
+
+    pitchedWarpCache = std::move(cache);
+}
+
 void PercussionSound::requestWarpedCacheBuild(double hostBpm) const
+{
+    requestWarpedCacheBuild(hostBpm, 1.0);
+}
+
+void PercussionSound::requestWarpedCacheBuild(double hostBpm, double pitchRatio) const
 {
     if (!warpEnabled || metadata == nullptr)
         return;
 
     const double bpm = quantizeWarpBpm(hostBpm);
+    const double pitch = quantizeWarpPitchRatio(pitchRatio);
     collectReadyWarpCache();
 
     std::lock_guard<std::mutex> lock(warpCacheMutex);
 
-    if (warpCache && bpmMatches(warpCache->bpm, bpm))
+    if (isNeutralPitchRatio(pitch))
+    {
+        if (warpCache && cacheMatches(*warpCache, bpm, 1.0))
+            return;
+    }
+    else if (pitchedWarpCache && cacheMatches(*pitchedWarpCache, bpm, pitch))
+    {
         return;
+    }
 
     if (warpCacheFuture.valid())
     {
-        if (bpmMatches(pendingWarpCacheBpm, bpm))
-            return;
-
-        // Keep background work bounded to one build per sound.
-        if (warpCacheFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+        if (bpmMatches(pendingWarpCacheBpm, bpm)
+            && pitchMatches(pendingWarpCachePitchRatio, pitch))
         {
-            if (warpCache && !bpmMatches(warpCache->bpm, bpm))
-                warpCache.reset();
             return;
         }
 
+        // Keep background work bounded to one build per sound.
+        if (warpCacheFuture.wait_for(std::chrono::seconds(0)) != std::future_status::ready)
+            return;
+
         auto readyCache = warpCacheFuture.get();
         const bool shouldPublish = (pendingWarpCacheBpm > 0.0);
+        const bool wasPitchedCache = !isNeutralPitchRatio(pendingWarpCachePitchRatio);
         pendingWarpCacheBpm = 0.0;
-        if (shouldPublish && readyCache)
-            warpCache = std::move(readyCache);
+        pendingWarpCachePitchRatio = 1.0;
 
-        if (warpCache && bpmMatches(warpCache->bpm, bpm))
+        if (shouldPublish && readyCache)
+        {
+            if (wasPitchedCache)
+                storePitchedWarpCacheLocked(std::move(readyCache));
+            else
+                warpCache = std::move(readyCache);
+        }
+
+        if (isNeutralPitchRatio(pitch))
+        {
+            if (warpCache && cacheMatches(*warpCache, bpm, 1.0))
+                return;
+        }
+        else if (pitchedWarpCache && cacheMatches(*pitchedWarpCache, bpm, pitch))
+        {
             return;
+        }
     }
 
-    // Drop stale cache proactively; voices keep their own shared_ptr copy.
-    warpCache.reset();
-    pendingWarpCacheBpm = bpm;
+    if (isNeutralPitchRatio(pitch))
+        warpCache.reset();
+    else
+        pitchedWarpCache.reset();
 
-    warpCacheFuture = std::async(std::launch::async, [this, bpm]() -> std::shared_ptr<WarpedCache>
+    pendingWarpCacheBpm = bpm;
+    pendingWarpCachePitchRatio = pitch;
+
+    warpCacheFuture = std::async(std::launch::async, [this, bpm, pitch]() -> std::shared_ptr<WarpedCache>
     {
-        auto builtCache = renderWarpedCache(bpm);
+        auto builtCache = renderWarpedCache(bpm, pitch);
         if (!builtCache)
             return {};
 
         builtCache->bpm = bpm;
+        builtCache->pitchRatio = pitch;
         return std::shared_ptr<WarpedCache>(std::move(builtCache));
     });
 }
@@ -219,10 +314,13 @@ void PercussionSound::clearWarpedCache() const
     collectReadyWarpCache();
     std::lock_guard<std::mutex> lock(warpCacheMutex);
     pendingWarpCacheBpm = 0.0;
+    pendingWarpCachePitchRatio = 1.0;
     warpCache.reset();
+    pitchedWarpCache.reset();
 }
 
-std::unique_ptr<PercussionSound::WarpedCache> PercussionSound::renderWarpedCache(double hostBpm) const
+std::unique_ptr<PercussionSound::WarpedCache> PercussionSound::renderWarpedCache(double hostBpm,
+                                                                                 double pitchRatio) const
 {
     if (metadata == nullptr)
         return nullptr;
@@ -235,12 +333,14 @@ std::unique_ptr<PercussionSound::WarpedCache> PercussionSound::renderWarpedCache
 
     auto cache = std::make_unique<WarpedCache>();
     cache->bpm = hostBpm;
+    cache->pitchRatio = quantizeWarpPitchRatio(pitchRatio);
     // Warp cache must always use actual audio sample rate, not JSON metadata sampleRate.
     // JSON sampleRate can differ from the loaded WAV rate and would bias pitch.
     cache->sourceSampleRate = juce::jmax(1.0, sourceSampleRate);
 
     const double timeRatio = warpTimeRatioForHost(originalBpm, hostBpm);
     cache->timeRatio = timeRatio;
+    const int targetOutputSamples = juce::jmax(1, (int) std::llround((double) srcSamples * timeRatio));
 
     const auto opts =
         RubberBand::RubberBandStretcher::OptionProcessOffline
@@ -255,9 +355,14 @@ std::unique_ptr<PercussionSound::WarpedCache> PercussionSound::renderWarpedCache
         (size_t) srcChannels,
         opts,
         timeRatio,
-        1.0);
+        cache->pitchRatio);
 
-    // Key-frame map from transient list (source frame -> stretched frame)
+    // RubberBand's offline pitch shift stretches to timeRatio * pitchRatio,
+    // then resamples back to timeRatio. Key-frame targets must live in that
+    // pre-resample stretch domain or pitched loop transients drift in tempo.
+    const double keyFrameTargetRatio = timeRatio * cache->pitchRatio;
+
+    // Key-frame map from transient list (source frame -> pre-resample stretched frame)
     std::map<size_t, size_t> keyFrames;
     keyFrames[0] = 0;
 
@@ -268,14 +373,16 @@ std::unique_ptr<PercussionSound::WarpedCache> PercussionSound::renderWarpedCache
             continue;
 
         const size_t srcFrame = (size_t) juce::jmax(0.0, std::floor(t * sr));
-        const size_t dstFrame = (size_t) std::llround((double) srcFrame * timeRatio);
+        const size_t dstFrame = (size_t) std::llround((double) srcFrame * keyFrameTargetRatio);
         keyFrames[srcFrame] = dstFrame;
     }
 
     const size_t lastSrc = (size_t) srcSamples;
-    keyFrames[lastSrc] = (size_t) std::llround((double) lastSrc * timeRatio);
+    keyFrames[lastSrc] = (size_t) std::llround((double) lastSrc * keyFrameTargetRatio);
 
     stretcher.setTimeRatio(timeRatio);
+    stretcher.setPitchScale(cache->pitchRatio);
+    stretcher.setExpectedInputDuration((size_t) srcSamples);
     stretcher.setKeyFrameMap(keyFrames);
 
     std::array<const float*, 2> inPtrs {
@@ -287,7 +394,7 @@ std::unique_ptr<PercussionSound::WarpedCache> PercussionSound::renderWarpedCache
     stretcher.process(inPtrs.data(), (size_t) srcSamples, true);
 
     const size_t pad = (size_t)(stretcher.getStartDelay() + stretcher.getLatency() + 128);
-    size_t estimatedOut = (size_t) std::ceil((double) srcSamples * timeRatio + (double) pad);
+    size_t estimatedOut = (size_t) targetOutputSamples + pad;
     estimatedOut = juce::jmax<size_t>(estimatedOut, (size_t) srcSamples);
 
     cache->buffer.setSize(srcChannels, (int) estimatedOut, false, true, true);
@@ -296,12 +403,13 @@ std::unique_ptr<PercussionSound::WarpedCache> PercussionSound::renderWarpedCache
     size_t written = 0;
     int safety = 0;
 
-    while (stretcher.available() > 0 && safety < 4096)
+    while (safety < 4096)
     {
-        const size_t available = stretcher.available();
-        if (available == 0)
+        const int availableFrames = stretcher.available();
+        if (availableFrames <= 0)
             break;
 
+        const size_t available = (size_t) availableFrames;
         const size_t needed = written + available;
         if ((size_t) cache->buffer.getNumSamples() < needed)
             cache->buffer.setSize(srcChannels, (int) needed, true, true, true);
@@ -319,7 +427,13 @@ std::unique_ptr<PercussionSound::WarpedCache> PercussionSound::renderWarpedCache
         ++safety;
     }
 
-    cache->buffer.setSize(srcChannels, (int) written, true, true, true);
+    if (written < (size_t) targetOutputSamples)
+    {
+        const int clearStart = (int) written;
+        cache->buffer.clear(clearStart, targetOutputSamples - clearStart);
+    }
+
+    cache->buffer.setSize(srcChannels, targetOutputSamples, true, true, true);
     return cache;
 }
 

@@ -82,6 +82,7 @@ void PercussionVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
 
     const double effectiveSamplePitchRatio = updateWarpLoopPitchDebounce(numSamples);
 
+    maybeSwitchToReadyWarpCache(effectiveSamplePitchRatio);
     maybeSwitchWarpCacheToRealtime(effectiveSamplePitchRatio);
     maybeSwitchLengthPreservedPitchToRealtime(effectiveSamplePitchRatio);
 
@@ -209,26 +210,23 @@ void PercussionVoice::beginPlayback(float velocity)
                                         && warpToggle;
     const bool needsLengthPreservingPitch = shouldPreservePitchLength
                                          && !isNeutralPitchRatio(samplePitchRatio);
+    const bool usePitchWarpCache = shouldUsePitchWarpCache(samplePitchRatio);
+    const bool canUseOfflineWarpCache = (shouldTimeWarp && !needsLengthPreservingPitch)
+                                     || usePitchWarpCache;
+    const double offlineWarpCachePitchRatio = usePitchWarpCache ? samplePitchRatio : 1.0;
 
     isWarping = shouldTimeWarp || needsLengthPreservingPitch;
 
     if (shouldTimeWarp && bpmIsMoving)
         noteStartDeclicker.trigger();
 
-    if (shouldTimeWarp && metadata != nullptr && hostBpmParam != nullptr)
+    if (canUseOfflineWarpCache && metadata != nullptr && hostBpmParam != nullptr)
     {
-        currentSound->requestWarpedCacheBuild(hostBpm);
-        activeWarpCache = currentSound->getWarpedCache(hostBpm);
-
-        if (activeWarpCache && !needsLengthPreservingPitch)
-        {
-            playbackState.usingWarpCache = true;
-            activeBuffer = &activeWarpCache->buffer;
-            playbackState.activeSourceSampleRate = activeWarpCache->sourceSampleRate;
-            playbackState.currentTimeRatio = activeWarpCache->timeRatio;
-            playbackState.pitchRatio = playbackState.activeSourceSampleRate / playbackSampleRate;
-        }
-        else
+        if (!tryUseWarpCache(hostBpm,
+                             offlineWarpCachePitchRatio,
+                             0.0,
+                             true,
+                             false))
         {
             isRealtimeWarping = true;
         }
@@ -283,6 +281,41 @@ void PercussionVoice::resetWarpFlags()
     playbackState.currentTimeRatio = 1.0;
 }
 
+void PercussionVoice::maybeSwitchToReadyWarpCache(double effectiveSamplePitchRatio)
+{
+    if (currentSound == nullptr
+        || !shouldDebounceWarpLoopPitch())
+    {
+        return;
+    }
+
+    const bool hostBpmIsMoving = (hostBpmMovingParam != nullptr)
+                              && hostBpmMovingParam->load(std::memory_order_relaxed);
+    if (hostBpmIsMoving)
+        return;
+
+    const bool needsLengthPreservingPitch = !isNeutralPitchRatio(effectiveSamplePitchRatio);
+    if (!needsLengthPreservingPitch)
+    {
+        if (!shouldTimeWarpForCurrentHost())
+            return;
+
+        const bool activeCacheNeedsNeutralPitch = playbackState.usingWarpCache
+                                              && activeWarpCache
+                                              && pitchRatiosDiffer(activeWarpCache->pitchRatio, 1.0);
+        if (!isRealtimeWarping && !activeCacheNeedsNeutralPitch)
+            return;
+    }
+
+    const double cachePitchRatio = needsLengthPreservingPitch ? effectiveSamplePitchRatio : 1.0;
+
+    tryUseWarpCache(getCurrentHostBpm(),
+                    cachePitchRatio,
+                    getCurrentOriginalSourceTimeSec(),
+                    needsLengthPreservingPitch,
+                    true);
+}
+
 void PercussionVoice::maybeSwitchWarpCacheToRealtime(double effectiveSamplePitchRatio)
 {
     const bool hostBpmIsMoving = (hostBpmMovingParam != nullptr)
@@ -331,8 +364,32 @@ void PercussionVoice::maybeSwitchLengthPreservedPitchToRealtime(double effective
 {
     if (currentSound == nullptr
         || isRealtimeWarping
-        || !shouldPreserveLengthForPitch()
-        || isNeutralPitchRatio(effectiveSamplePitchRatio))
+        || !shouldPreserveLengthForPitch())
+    {
+        return;
+    }
+
+    const bool pitchIsNeutral = isNeutralPitchRatio(effectiveSamplePitchRatio);
+    const double targetCachePitchRatio = pitchIsNeutral ? 1.0 : effectiveSamplePitchRatio;
+    const bool activeCacheMatchesPitch = playbackState.usingWarpCache
+                                      && activeWarpCache
+                                      && !pitchRatiosDiffer(activeWarpCache->pitchRatio,
+                                                           PercussionSound::quantizeWarpPitchRatio(targetCachePitchRatio));
+
+    if (pitchIsNeutral)
+    {
+        if (!playbackState.usingWarpCache || activeCacheMatchesPitch)
+            return;
+
+        if (!shouldTimeWarpForCurrentHost())
+        {
+            switchToOriginalPlaybackFromSourceTime(getCurrentOriginalSourceTimeSec(),
+                                                   juce::jmax(1.0, getSampleRate()),
+                                                   true);
+            return;
+        }
+    }
+    else if (activeCacheMatchesPitch && shouldUsePitchWarpCache(effectiveSamplePitchRatio))
     {
         return;
     }
@@ -381,6 +438,100 @@ void PercussionVoice::maybeSwitchLengthPreservedPitchToRealtime(double effective
                                      juce::jlimit(1, 2, originalData.getNumChannels()),
                                      effectiveSamplePitchRatio,
                                      true);
+}
+
+bool PercussionVoice::tryUseWarpCache(double hostBpm,
+                                      double samplePitchRatio,
+                                      double sourceTimeSec,
+                                      bool requestIfMissing,
+                                      bool triggerDeclick)
+{
+    if (currentSound == nullptr)
+        return false;
+
+    auto cache = currentSound->getWarpedCache(hostBpm, samplePitchRatio);
+    if (!cache)
+    {
+        if (requestIfMissing)
+            currentSound->requestWarpedCacheBuild(hostBpm, samplePitchRatio);
+
+        return false;
+    }
+
+    if (playbackState.usingWarpCache && activeWarpCache == cache)
+        return true;
+
+    return switchToWarpCache(std::move(cache),
+                             sourceTimeSec,
+                             juce::jmax(1.0, getSampleRate()),
+                             triggerDeclick);
+}
+
+bool PercussionVoice::switchToWarpCache(std::shared_ptr<PercussionSound::WarpedCache> cache,
+                                        double sourceTimeSec,
+                                        double playbackSampleRate,
+                                        bool triggerDeclick)
+{
+    if (!cache || cache->buffer.getNumSamples() <= 0 || cache->buffer.getNumChannels() <= 0)
+        return false;
+
+    activeWarpCache = std::move(cache);
+    activeBuffer = &activeWarpCache->buffer;
+
+    const double cacheSampleRate = juce::jmax(1.0, activeWarpCache->sourceSampleRate);
+    const double cacheTimeSec = juce::jmax(0.0, sourceTimeSec)
+                              * juce::jmax(1e-9, activeWarpCache->timeRatio);
+    const double maxPosition = juce::jmax(0, activeWarpCache->buffer.getNumSamples() - 1);
+
+    playbackState.activeSourceSampleRate = cacheSampleRate;
+    playbackState.sourceSamplePosition = juce::jlimit(0.0,
+                                                      maxPosition,
+                                                      cacheTimeSec * cacheSampleRate);
+    playbackState.pitchRatio = playbackState.activeSourceSampleRate / juce::jmax(1.0, playbackSampleRate);
+    playbackState.currentTimeRatio = activeWarpCache->timeRatio;
+    playbackState.usingWarpCache = true;
+    isWarping = true;
+    isRealtimeWarping = false;
+    realtimeWarpPlayer.reset();
+
+    if (triggerDeclick)
+        noteStartDeclicker.trigger();
+
+    return true;
+}
+
+bool PercussionVoice::switchToOriginalPlaybackFromSourceTime(double sourceTimeSec,
+                                                             double playbackSampleRate,
+                                                             bool triggerDeclick)
+{
+    if (currentSound == nullptr)
+        return false;
+
+    const auto& originalData = currentSound->getAudioData();
+    if (originalData.getNumSamples() <= 0 || originalData.getNumChannels() <= 0)
+        return false;
+
+    const double sourceSampleRate = juce::jmax(1.0, currentSound->getSourceSampleRate());
+    const double maxPosition = juce::jmax(0, originalData.getNumSamples() - 1);
+
+    activeWarpCache.reset();
+    activeBuffer = &originalData;
+    realtimeWarpPlayer.reset();
+
+    playbackState.activeSourceSampleRate = sourceSampleRate;
+    playbackState.sourceSamplePosition = juce::jlimit(0.0,
+                                                      maxPosition,
+                                                      juce::jmax(0.0, sourceTimeSec) * sourceSampleRate);
+    playbackState.pitchRatio = playbackState.activeSourceSampleRate / juce::jmax(1.0, playbackSampleRate);
+    playbackState.currentTimeRatio = 1.0;
+    playbackState.usingWarpCache = false;
+    isWarping = false;
+    isRealtimeWarping = false;
+
+    if (triggerDeclick)
+        noteStartDeclicker.trigger();
+
+    return true;
 }
 
 bool PercussionVoice::switchToRealtimeWarpFromOriginal(int startSourceSample,
@@ -497,6 +648,40 @@ double PercussionVoice::getCurrentHostBpm() const noexcept
     return (currentSound != nullptr) ? currentSound->getOriginalBpm() : 1.0;
 }
 
+double PercussionVoice::getCurrentOriginalSourceTimeSec() const noexcept
+{
+    if (currentSound == nullptr)
+        return 0.0;
+
+    if (isRealtimeWarping)
+        return realtimeWarpPlayer.getCurrentSourceTimeSec();
+
+    const double activeSampleRate = juce::jmax(1.0, playbackState.activeSourceSampleRate);
+    const double playbackTimeSec = playbackState.sourceSamplePosition / activeSampleRate;
+
+    if (playbackState.usingWarpCache)
+        return playbackTimeSec / juce::jmax(1e-9, playbackState.currentTimeRatio);
+
+    return playbackTimeSec;
+}
+
+bool PercussionVoice::shouldTimeWarpForCurrentHost() const noexcept
+{
+    if (currentSound == nullptr
+        || !currentSound->isWarpEnabled()
+        || hostBpmParam == nullptr
+        || warpEnabledParam == nullptr
+        || !warpEnabledParam->load(std::memory_order_relaxed))
+    {
+        return false;
+    }
+
+    const double hostBpm = getCurrentHostBpm();
+    const double warpBaseBpm = PercussionSound::warpBaseBpmForHost(currentSound->getOriginalBpm(),
+                                                                   hostBpm);
+    return std::abs(hostBpm - warpBaseBpm) >= 0.1;
+}
+
 bool PercussionVoice::shouldPreserveLengthForPitch() const noexcept
 {
     return currentSound != nullptr
@@ -511,6 +696,12 @@ bool PercussionVoice::shouldDebounceWarpLoopPitch() const noexcept
     return shouldPreserveLengthForPitch()
         && metadata != nullptr
         && metadata->loop;
+}
+
+bool PercussionVoice::shouldUsePitchWarpCache(double samplePitchRatio) const noexcept
+{
+    return shouldDebounceWarpLoopPitch()
+        && !isNeutralPitchRatio(samplePitchRatio);
 }
 
 int PercussionVoice::getWarpLoopPitchDebounceSampleCount() const noexcept
