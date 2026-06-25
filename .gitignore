@@ -4,3 +4,4 @@ build-mac-intel-legacy
 .DS_Store
 test.exe
 com.apple.DeveloperTools
+build_debug_vst3.sh
