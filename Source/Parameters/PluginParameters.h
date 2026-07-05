@@ -9,7 +9,12 @@ namespace PluginParameters
     inline constexpr const char* rzhavchinaId = "rzhavchina";
     inline constexpr const char* sustainShortenId = "sustainShorten";
     inline constexpr const char* warpEnabledId = "warpEnabled";
+    inline constexpr const char* samplePunchId = "samplePunch";
     inline constexpr const char* samplePitchSemitonesId = "samplePitchSemitones";
+
+    inline constexpr float samplePunchMinimum = 0.0f;
+    inline constexpr float samplePunchMaximum = 1.0f;
+    inline constexpr float samplePunchDefault = 0.0f;
 
     inline constexpr float samplePitchSemitonesMinimum = -8.0f;
     inline constexpr float samplePitchSemitonesMaximum = 8.0f;

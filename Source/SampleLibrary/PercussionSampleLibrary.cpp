@@ -173,6 +173,7 @@ namespace PercussionSampleLibrary
                 0.05,
                 reader->lengthInSamples / reader->sampleRate,
                 resourceName,
+                sampleResource.originalFilename,
                 originalBpm);
 
             sampler.addSound(sound);

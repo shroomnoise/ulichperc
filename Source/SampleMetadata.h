@@ -25,7 +25,8 @@ struct SampleMetadata
     bool hasTransients() const noexcept { return !transients.empty(); }
 };
 
-// Given a BinaryData WAV resource name (e.g. "samples_sample_1_wav"),
-// find and load the corresponding JSON metadata resource
-// (e.g. "transients_sample_1_transients_json").
-std::unique_ptr<SampleMetadata> loadMetadataForResource(const juce::String& wavResourceName);
+// Given a BinaryData WAV resource name and its original source filename,
+// find and load metadata for the exact sample file stem
+// (e.g. "1_v1_n1.wav" -> "1_v1_n1.transients.json").
+std::unique_ptr<SampleMetadata> loadMetadataForResource(const juce::String& wavResourceName,
+                                                        const juce::String& wavOriginalFilename);

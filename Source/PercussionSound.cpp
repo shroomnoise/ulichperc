@@ -44,6 +44,7 @@ PercussionSound::PercussionSound(const juce::String& soundName,
                                    double releaseTimeSeconds,
                                    double maxSampleLengthSeconds,
                                    const juce::String& wavResourceNameForMetadata,
+                                   const juce::String& wavOriginalFilenameForMetadata,
                                    double originalBpmIn)
     : name(soundName),
       sourceSampleRate(source.sampleRate),
@@ -67,7 +68,8 @@ PercussionSound::PercussionSound(const juce::String& soundName,
     release = releaseTimeSeconds;
 
     // load transient metadata from BinaryData (if present)
-    metadata = loadMetadataForResource(wavResourceNameForMetadata);
+    metadata = loadMetadataForResource(wavResourceNameForMetadata,
+                                       wavOriginalFilenameForMetadata);
     if (metadata == nullptr)
         metadata = std::make_unique<SampleMetadata>();
 

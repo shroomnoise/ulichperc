@@ -9,7 +9,7 @@
 #include "Midi/MidiNoteActivityState.h"
 #include "PercussionSynthesiser.h"
 #include "Parameters/SampleSpecificParameterState.h"
-#include "Parameters/SampleSpecificPitchCache.h"
+#include "Parameters/SampleSpecificRealtimeCache.h"
 #include "SampleLibrary/PercussionSampleLibrary.h"
 #include "Tempo/HostTempoTracker.h"
 #include "Warp/WarpCachePrewarmer.h"
@@ -74,7 +74,8 @@ private:
     void updateVoiceSharedState();
     void clampSelectedSampleGroupIndex() noexcept;
     void updateSamplePitchCacheForGroup(int groupIndex, float value) noexcept;
-    void rebuildSamplePitchCache();
+    void updateSamplePunchCacheForGroup(int groupIndex, float value) noexcept;
+    void rebuildSampleSpecificCache();
 
     //==============================================================================
     std::atomic<bool> warpEnabledAtomic { true };
@@ -86,7 +87,7 @@ private:
     std::vector<PercussionSampleLibrary::SampleGroupInfo> sampleGroups;
     std::atomic<int> selectedSampleGroupIndex { -1 };
     SampleSpecificParameterState sampleSpecificParameters;
-    SampleSpecificPitchCache samplePitchCache;
+    SampleSpecificRealtimeCache sampleSpecificCache;
 
     JUCE_DECLARE_NON_COPYABLE_WITH_LEAK_DETECTOR (AudioPluginAudioProcessor)
 };

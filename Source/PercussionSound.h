@@ -28,6 +28,7 @@ public:
                     double releaseTimeSeconds,
                     double maxSampleLengthSeconds,
                     const juce::String& wavResourceNameForMetadata,
+                    const juce::String& wavOriginalFilenameForMetadata,
                     double originalBpmIn);
 
     // SynthesiserSound overrides

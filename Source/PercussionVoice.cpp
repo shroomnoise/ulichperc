@@ -98,6 +98,7 @@ void PercussionVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
     }
 
     const float sustainAmount = getSustainAmount();
+    const float punchAmount = getCurrentSamplePunchAmount();
     const bool hasTransientData = (metadata != nullptr && !metadata->transients.empty());
     const float sustainMakeupGain = SustainTailShaper::getMakeupGain(sustainAmount, hasTransientData);
 
@@ -115,6 +116,8 @@ void PercussionVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                                                       loopWhileHeld,
                                                       adsr,
                                                       velocityGain,
+                                                      punchAmount,
+                                                      metadata,
                                                       sustainAmount,
                                                       sustainMakeupGain,
                                                       effectiveSamplePitchRatio,
@@ -134,9 +137,12 @@ void PercussionVoice::renderNextBlock(juce::AudioBuffer<float>& outputBuffer,
                                              numSamples,
                                              data,
                                              playbackState,
+                                             juce::jmax(1.0, getSampleRate()),
                                              loopWhileHeld,
                                              adsr,
                                              velocityGain,
+                                             punchAmount,
+                                             metadata,
                                              sustainAmount,
                                              sustainMakeupGain,
                                              sustainShaper,
@@ -621,6 +627,14 @@ float PercussionVoice::getSustainAmount() const noexcept
     return juce::jlimit(0.0f, 1.0f, amount);
 }
 
+float PercussionVoice::getCurrentSamplePunchAmount() const noexcept
+{
+    if (currentSound == nullptr || sampleSpecificCache == nullptr)
+        return 0.0f;
+
+    return sampleSpecificCache->getPunchAmountForMidiNote(currentSound->getMidiRootNote());
+}
+
 void PercussionVoice::updateSampleRendererPitchRatio() noexcept
 {
     const double playbackSampleRate = juce::jmax(1.0, getSampleRate());
@@ -634,10 +648,10 @@ void PercussionVoice::updateSampleRendererPitchRatio() noexcept
 
 double PercussionVoice::getCurrentSamplePitchRatio() const noexcept
 {
-    if (currentSound == nullptr || samplePitchCache == nullptr)
+    if (currentSound == nullptr || sampleSpecificCache == nullptr)
         return 1.0;
 
-    return samplePitchCache->getPitchRatioForMidiNote(currentSound->getMidiRootNote());
+    return sampleSpecificCache->getPitchRatioForMidiNote(currentSound->getMidiRootNote());
 }
 
 double PercussionVoice::getCurrentHostBpm() const noexcept

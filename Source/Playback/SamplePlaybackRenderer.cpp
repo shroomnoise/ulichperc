@@ -1,13 +1,18 @@
 #include "SamplePlaybackRenderer.h"
 
+#include "PunchEnvelope.h"
+
 SamplePlaybackRenderer::Result SamplePlaybackRenderer::render(juce::AudioBuffer<float>& outputBuffer,
                                                               int startSample,
                                                               int numSamples,
                                                               const juce::AudioBuffer<float>& source,
                                                               State& state,
+                                                              double playbackSampleRate,
                                                               bool loopWhileHeld,
                                                               juce::ADSR& adsr,
                                                               float velocityGain,
+                                                              float punchAmount,
+                                                              const SampleMetadata* punchMetadata,
                                                               float sustainAmount,
                                                               float sustainMakeupGain,
                                                               SustainTailShaper& sustainShaper,
@@ -29,6 +34,30 @@ SamplePlaybackRenderer::Result SamplePlaybackRenderer::render(juce::AudioBuffer<
     const float* srcR = (sourceNumChans > 1) ? source.getReadPointer(1) : nullptr;
 
     const bool doSustainShorten = sustainShaper.shouldShape(sustainAmount);
+    const bool doPunch = punchAmount > 0.0f;
+    const double activeSourceSampleRate = juce::jmax(1e-9, state.activeSourceSampleRate);
+    const double outputSampleRate = juce::jmax(1.0, playbackSampleRate);
+    const double sourceFramesPerOutputSample = juce::jmax(1e-9, state.pitchRatio);
+    const double unwarpedPunchTimeRatio = activeSourceSampleRate
+                                        / (sourceFramesPerOutputSample * outputSampleRate);
+    const double punchTimeRatio = state.usingWarpCache ? state.currentTimeRatio
+                                                       : unwarpedPunchTimeRatio;
+
+    const auto getPunchPlaybackTimeSec = [&state, activeSourceSampleRate, sourceFramesPerOutputSample, outputSampleRate]() noexcept
+    {
+        if (state.usingWarpCache)
+            return state.sourceSamplePosition / activeSourceSampleRate;
+
+        return state.sourceSamplePosition / (sourceFramesPerOutputSample * outputSampleRate);
+    };
+
+    const auto getOriginalSourceTimeSec = [&state]() noexcept
+    {
+        const double playbackTimeSec = state.sourceSamplePosition
+                                     / juce::jmax(1e-9, state.activeSourceSampleRate);
+        return playbackTimeSec
+             / juce::jmax(1e-9, (state.usingWarpCache ? state.currentTimeRatio : 1.0));
+    };
 
     auto handleSourceEnd = [&]() -> bool
     {
@@ -90,15 +119,27 @@ SamplePlaybackRenderer::Result SamplePlaybackRenderer::render(juce::AudioBuffer<
             float sampleL = inL * gain;
             float sampleR = inR * gain;
 
-            if (doSustainShorten)
+            if (doPunch || doSustainShorten)
             {
-                const double playbackTimeSec = state.sourceSamplePosition
-                                             / juce::jmax(1e-9, state.activeSourceSampleRate);
-                const double timeSec = playbackTimeSec
-                                     / juce::jmax(1e-9, (state.usingWarpCache ? state.currentTimeRatio : 1.0));
-                const float sustainGain = sustainShaper.getGain(timeSec, sustainAmount);
-                sampleL *= sustainGain;
-                sampleR *= sustainGain;
+                const double timeSec = getOriginalSourceTimeSec();
+
+                if (doPunch)
+                {
+                    const double punchTimeSec = getPunchPlaybackTimeSec();
+                    const float punchGain = PunchEnvelope::getGain(punchTimeSec,
+                                                                   punchMetadata,
+                                                                   punchTimeRatio,
+                                                                   punchAmount);
+                    sampleL *= punchGain;
+                    sampleR *= punchGain;
+                }
+
+                if (doSustainShorten)
+                {
+                    const float sustainGain = sustainShaper.getGain(timeSec, sustainAmount);
+                    sampleL *= sustainGain;
+                    sampleR *= sustainGain;
+                }
             }
 
             sampleL *= sustainMakeupGain;
@@ -155,15 +196,27 @@ SamplePlaybackRenderer::Result SamplePlaybackRenderer::render(juce::AudioBuffer<
         float sampleL = inL * gain;
         float sampleR = inR * gain;
 
-        if (doSustainShorten)
+        if (doPunch || doSustainShorten)
         {
-            const double playbackTimeSec = state.sourceSamplePosition
-                                         / juce::jmax(1e-9, state.activeSourceSampleRate);
-            const double timeSec = playbackTimeSec
-                                 / juce::jmax(1e-9, (state.usingWarpCache ? state.currentTimeRatio : 1.0));
-            const float sustainGain = sustainShaper.getGain(timeSec, sustainAmount);
-            sampleL *= sustainGain;
-            sampleR *= sustainGain;
+            const double timeSec = getOriginalSourceTimeSec();
+
+            if (doPunch)
+            {
+                const double punchTimeSec = getPunchPlaybackTimeSec();
+                const float punchGain = PunchEnvelope::getGain(punchTimeSec,
+                                                               punchMetadata,
+                                                               punchTimeRatio,
+                                                               punchAmount);
+                sampleL *= punchGain;
+                sampleR *= punchGain;
+            }
+
+            if (doSustainShorten)
+            {
+                const float sustainGain = sustainShaper.getGain(timeSec, sustainAmount);
+                sampleL *= sustainGain;
+                sampleR *= sustainGain;
+            }
         }
 
         sampleL *= sustainMakeupGain;

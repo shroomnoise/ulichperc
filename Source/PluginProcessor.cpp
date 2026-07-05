@@ -45,7 +45,7 @@ AudioPluginAudioProcessor::AudioPluginAudioProcessor()
 
     PercussionSampleLibrary::loadEmbeddedSamples(sampler, percussionOriginalBpm, &sampleGroups);
     clampSelectedSampleGroupIndex();
-    rebuildSamplePitchCache();
+    rebuildSampleSpecificCache();
     DBG("=== Constructor done ===");
 }
 
@@ -58,7 +58,7 @@ void AudioPluginAudioProcessor::addPercussionVoices()
         v->setWarpEnabledParam(&warpEnabledAtomic);
         v->setHostBpmParam(hostTempo.getBpmAtomic());
         v->setHostBpmMovingParam(hostTempo.getMovingAtomic());
-        v->setSamplePitchCache(&samplePitchCache);
+        v->setSampleSpecificCache(&sampleSpecificCache);
         sampler.addVoice(v);
     }
 }
@@ -73,7 +73,7 @@ void AudioPluginAudioProcessor::updateVoiceSharedState()
             v->setWarpEnabledParam(&warpEnabledAtomic);
             v->setHostBpmParam(hostTempo.getBpmAtomic());
             v->setHostBpmMovingParam(hostTempo.getMovingAtomic());
-            v->setSamplePitchCache(&samplePitchCache);
+            v->setSampleSpecificCache(&sampleSpecificCache);
         }
     }
 }
@@ -143,6 +143,8 @@ void AudioPluginAudioProcessor::setSampleSpecificParameterValue(const juce::Stri
 
     if (parameterId == PluginParameters::samplePitchSemitonesId)
         updateSamplePitchCacheForGroup(groupIndex, value);
+    else if (parameterId == PluginParameters::samplePunchId)
+        updateSamplePunchCacheForGroup(groupIndex, value);
 }
 
 void AudioPluginAudioProcessor::clampSelectedSampleGroupIndex() noexcept
@@ -159,23 +161,42 @@ void AudioPluginAudioProcessor::updateSamplePitchCacheForGroup(int groupIndex, f
     const float limitedValue = juce::jlimit(PluginParameters::samplePitchSemitonesMinimum,
                                            PluginParameters::samplePitchSemitonesMaximum,
                                            value);
-    samplePitchCache.setPitchSemitonesForMidiNote(sampleGroup.midiNote, limitedValue);
+    sampleSpecificCache.setPitchSemitonesForMidiNote(sampleGroup.midiNote, limitedValue);
 }
 
-void AudioPluginAudioProcessor::rebuildSamplePitchCache()
+void AudioPluginAudioProcessor::updateSamplePunchCacheForGroup(int groupIndex, float value) noexcept
 {
-    samplePitchCache.reset();
+    if (groupIndex < 0 || groupIndex >= static_cast<int>(sampleGroups.size()))
+        return;
+
+    const auto& sampleGroup = sampleGroups[(size_t) groupIndex];
+    const float limitedValue = juce::jlimit(PluginParameters::samplePunchMinimum,
+                                           PluginParameters::samplePunchMaximum,
+                                           value);
+    sampleSpecificCache.setPunchAmountForMidiNote(sampleGroup.midiNote, limitedValue);
+}
+
+void AudioPluginAudioProcessor::rebuildSampleSpecificCache()
+{
+    sampleSpecificCache.reset();
 
     for (int groupIndex = 0; groupIndex < static_cast<int>(sampleGroups.size()); ++groupIndex)
     {
         const auto& sampleGroup = sampleGroups[(size_t) groupIndex];
-        const float value = sampleSpecificParameters.getValue(
+        const float pitchValue = sampleSpecificParameters.getValue(
             PluginParameters::samplePitchSemitonesId,
             sampleGroup,
             groupIndex,
             PluginParameters::samplePitchSemitonesDefault);
 
-        updateSamplePitchCacheForGroup(groupIndex, value);
+        const float punchValue = sampleSpecificParameters.getValue(
+            PluginParameters::samplePunchId,
+            sampleGroup,
+            groupIndex,
+            PluginParameters::samplePunchDefault);
+
+        updateSamplePitchCacheForGroup(groupIndex, pitchValue);
+        updateSamplePunchCacheForGroup(groupIndex, punchValue);
     }
 }
 
@@ -329,7 +350,7 @@ void AudioPluginAudioProcessor::setStateInformation(const void* data, int sizeIn
             clampSelectedSampleGroupIndex();
 
             sampleSpecificParameters.restoreFromPluginState(restoredState);
-            rebuildSamplePitchCache();
+            rebuildSampleSpecificCache();
 
             if (warpParamRaw != nullptr)
             {

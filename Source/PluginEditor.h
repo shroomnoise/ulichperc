@@ -36,9 +36,11 @@ public:
     // juce::Slider sampleRateSlider;
     ImageKnobSlider rzhavSlider;
     ImageKnobSlider sustainSlider;
+    ImageKnobSlider samplePunchSlider;
     ImageKnobSlider samplePitchSlider;
     juce::Label rzhavLabel;
     juce::Label sustainLabel;
+    juce::Label samplePunchLabel;
     juce::Label samplePitchLabel;
     juce::ToggleButton warpButton;
     SampleGroupSelector sampleGroupSelector;
@@ -47,6 +49,7 @@ public:
     // std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> bitDepthAttachment;
     // std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sampleRateAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> sustainAttachment;
+    std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> samplePunchAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::SliderAttachment> samplePitchAttachment;
     std::unique_ptr<juce::AudioProcessorValueTreeState::ButtonAttachment> warpAttachment;
 

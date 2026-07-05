@@ -1,5 +1,7 @@
 #include "RealtimeWarpPlayer.h"
 
+#include "PunchEnvelope.h"
+
 #include <climits>
 #include <cmath>
 
@@ -80,6 +82,8 @@ RealtimeWarpPlayer::Result RealtimeWarpPlayer::render(juce::AudioBuffer<float>& 
                                                        bool loopWhileHeld,
                                                        juce::ADSR& adsr,
                                                        float velocityGain,
+                                                       float punchAmount,
+                                                       const SampleMetadata* punchMetadata,
                                                        float sustainAmount,
                                                        float sustainMakeupGain,
                                                        double pitchScaleMultiplier,
@@ -115,6 +119,7 @@ RealtimeWarpPlayer::Result RealtimeWarpPlayer::render(juce::AudioBuffer<float>& 
     ensureBuffers(channels, numSamples);
 
     const bool doSustainShorten = sustainShaper.shouldShape(sustainAmount);
+    const bool doPunch = punchAmount > 0.0f;
     const double playbackSr = juce::jmax(1.0, playbackSampleRate);
     const double sourceStepSec = (1.0 / playbackSr) / juce::jmax(1e-9, currentTimeRatio);
 
@@ -227,6 +232,17 @@ RealtimeWarpPlayer::Result RealtimeWarpPlayer::render(juce::AudioBuffer<float>& 
 
             float sampleL = inL * gain;
             float sampleR = inR * gain;
+
+            if (doPunch)
+            {
+                const double punchTimeSec = outputTimeSec * juce::jmax(1.0e-9, currentTimeRatio);
+                const float punchGain = PunchEnvelope::getGain(punchTimeSec,
+                                                               punchMetadata,
+                                                               currentTimeRatio,
+                                                               punchAmount);
+                sampleL *= punchGain;
+                sampleR *= punchGain;
+            }
 
             if (doSustainShorten)
             {

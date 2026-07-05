@@ -49,6 +49,18 @@ AudioPluginAudioProcessorEditor::AudioPluginAudioProcessorEditor (AudioPluginAud
     addAndMakeVisible(sustainLabel);
     configureKnobLabel(sustainLabel, "Pomyatost");
 
+    addAndMakeVisible(samplePunchSlider);
+    samplePunchSlider.setComponentID(PluginUI::samplePunchSliderId);
+    samplePunchSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
+    samplePunchSlider.setTextBoxStyle(juce::Slider::NoTextBox, false, 0, 0);
+    samplePunchSlider.setLookAndFeel(customLNF.get());
+    samplePunchSlider.setDoubleClickReturnValue(true, PluginParameters::samplePunchDefault);
+    samplePunchSlider.setMouseDragSensitivity(150);
+    bindSliderToParameter(samplePunchSlider, PluginParameters::samplePunchId, samplePunchAttachment);
+
+    addAndMakeVisible(samplePunchLabel);
+    configureKnobLabel(samplePunchLabel, "Punch");
+
     addAndMakeVisible(samplePitchSlider);
     samplePitchSlider.setComponentID(PluginUI::samplePitchSliderId);
     samplePitchSlider.setSliderStyle(juce::Slider::RotaryVerticalDrag);
@@ -91,6 +103,7 @@ AudioPluginAudioProcessorEditor::~AudioPluginAudioProcessorEditor()
     // Clear L&F pointers before destroying the owned look and feel.
     rzhavSlider.setLookAndFeel(nullptr);
     sustainSlider.setLookAndFeel(nullptr);
+    samplePunchSlider.setLookAndFeel(nullptr);
     samplePitchSlider.setLookAndFeel(nullptr);
     warpButton.setLookAndFeel(nullptr);
     customLNF.reset();
@@ -234,6 +247,7 @@ void AudioPluginAudioProcessorEditor::resized()
 
     placeKnobWithLabel(rzhavSlider, rzhavLabel, 0, 222);
     placeKnobWithLabel(sustainSlider, sustainLabel, 81, 222);
+    placeKnobWithLabel(samplePunchSlider, samplePunchLabel, getWidth() - labelWidth - 105, 222);
     placeKnobWithLabel(samplePitchSlider, samplePitchLabel, getWidth() - labelWidth - 24, 222);
     warpButton.setBounds(23, 18, 170, 110);
 

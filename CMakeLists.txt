@@ -89,8 +89,8 @@ set(SourceFiles
         Source/Parameters/PluginParameters.cpp
         Source/Parameters/SampleSpecificParameterState.h
         Source/Parameters/SampleSpecificParameterState.cpp
-        Source/Parameters/SampleSpecificPitchCache.h
-        Source/Parameters/SampleSpecificPitchCache.cpp
+        Source/Parameters/SampleSpecificRealtimeCache.h
+        Source/Parameters/SampleSpecificRealtimeCache.cpp
         Source/Midi/MidiNoteActivityState.h
         Source/Midi/MidiNoteActivityState.cpp
         Source/Effects/RzhavProcessor.h
@@ -105,6 +105,8 @@ set(SourceFiles
         Source/Warp/WarpCachePrewarmer.cpp
         Source/Playback/NoteStartDeclicker.h
         Source/Playback/NoteStartDeclicker.cpp
+        Source/Playback/PunchEnvelope.h
+        Source/Playback/PunchEnvelope.cpp
         Source/Playback/RealtimeWarpPlayer.h
         Source/Playback/RealtimeWarpPlayer.cpp
         Source/Playback/SamplePlaybackRenderer.h
@@ -178,8 +180,8 @@ target_compile_definitions(${PROJECT_NAME}
         $<$<PLATFORM_ID:Windows>:WIN32_LEAN_AND_MEAN=1>
 )
 
-file(GLOB SAMPLE_FILES "${CMAKE_CURRENT_SOURCE_DIR}/samples/*.wav")
-file(GLOB TRANSIENT_FILES  "${CMAKE_CURRENT_SOURCE_DIR}/transients/*.json")
+file(GLOB SAMPLE_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/samples/*.wav")
+file(GLOB TRANSIENT_FILES CONFIGURE_DEPENDS "${CMAKE_CURRENT_SOURCE_DIR}/transients/*.json")
 
 # Pass them to BinaryData
 juce_add_binary_data(${PROJECT_NAME}Data

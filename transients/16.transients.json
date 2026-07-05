@@ -1,3 +1,8 @@
 {
-  "ignoreTransientShaper": true,
+  "sampleRate": 48000,
+  "lengthSec": 1.25,
+  "warp": false,
+  "transients": [
+    0.008020833333
+  ]
 }

@@ -5,6 +5,8 @@
 #include "NoteStartDeclicker.h"
 #include "SustainTailShaper.h"
 
+struct SampleMetadata;
+
 class SamplePlaybackRenderer
 {
 public:
@@ -27,9 +29,12 @@ public:
                   int numSamples,
                   const juce::AudioBuffer<float>& source,
                   State& state,
+                  double playbackSampleRate,
                   bool loopWhileHeld,
                   juce::ADSR& adsr,
                   float velocityGain,
+                  float punchAmount,
+                  const SampleMetadata* punchMetadata,
                   float sustainAmount,
                   float sustainMakeupGain,
                   SustainTailShaper& sustainShaper,

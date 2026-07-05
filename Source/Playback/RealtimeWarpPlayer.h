@@ -42,6 +42,8 @@ public:
                   bool loopWhileHeld,
                   juce::ADSR& adsr,
                   float velocityGain,
+                  float punchAmount,
+                  const SampleMetadata* punchMetadata,
                   float sustainAmount,
                   float sustainMakeupGain,
                   double pitchScaleMultiplier,

@@ -7,7 +7,7 @@
 #include "Playback/RealtimeWarpPlayer.h"
 #include "Playback/SamplePlaybackRenderer.h"
 #include "Playback/SustainTailShaper.h"
-#include "Parameters/SampleSpecificPitchCache.h"
+#include "Parameters/SampleSpecificRealtimeCache.h"
 
 // Voice that plays PercussionSound and shortens sustain tails
 // based on transient JSON metadata.
@@ -38,7 +38,7 @@ public:
     void setHostBpmParam(std::atomic<double>* p) { hostBpmParam = p; }
     void setWarpEnabledParam(std::atomic<bool>* p) { warpEnabledParam = p; }
     void setHostBpmMovingParam(std::atomic<bool>* p) { hostBpmMovingParam = p; }
-    void setSamplePitchCache(const SampleSpecificPitchCache* cache) noexcept { samplePitchCache = cache; }
+    void setSampleSpecificCache(const SampleSpecificRealtimeCache* cache) noexcept { sampleSpecificCache = cache; }
 
 private:
     void beginPlayback(float velocity);
@@ -71,6 +71,7 @@ private:
     void resetWarpLoopPitchDebounce(double pitchRatio) noexcept;
     void updateSampleRendererPitchRatio() noexcept;
     float getSustainAmount() const noexcept;
+    float getCurrentSamplePunchAmount() const noexcept;
     double getCurrentSamplePitchRatio() const noexcept;
     double getCurrentHostBpm() const noexcept;
     double getCurrentOriginalSourceTimeSec() const noexcept;
@@ -101,7 +102,7 @@ private:
     std::atomic<double>* hostBpmParam = nullptr;
     std::atomic<bool>* warpEnabledParam = nullptr;
     std::atomic<bool>* hostBpmMovingParam = nullptr;
-    const SampleSpecificPitchCache* samplePitchCache = nullptr;
+    const SampleSpecificRealtimeCache* sampleSpecificCache = nullptr;
 
     double appliedWarpLoopPitchRatio = 1.0;
     double pendingWarpLoopPitchRatio = 1.0;

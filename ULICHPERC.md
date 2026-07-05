@@ -12,8 +12,8 @@ warp, transient handling, parameters, or `processBlock`.
 - `Source/Parameters/SampleSpecificParameterState.cpp`: message-thread
   storage, lookup, and serialization for future sample-specific parameter
   values. This is not realtime-safe audio state.
-- `Source/Parameters/SampleSpecificPitchCache.cpp`: fixed-size, lock-free
-  realtime cache for per-MIDI-note sample pitch ratios.
+- `Source/Parameters/SampleSpecificRealtimeCache.cpp`: fixed-size, lock-free
+  realtime cache for per-MIDI-note sample-specific playback values.
 - `Source/Midi/MidiNoteActivityState.cpp`: fixed-size, lock-free handoff for
   per-MIDI-note UI activity velocities.
 - `Source/UI/SampleGroupSelector.cpp`: bottom UI selector for choosing the
@@ -161,6 +161,7 @@ Host-visible parameters are APVTS parameters and are serialized through
 | `rzhavchina` | `Rzhavchina` | float `0..1` | `0` | Bit depth and sample-rate reduction in `processBlock` |
 | `sustainShorten` | `Pomyatost` | float `0..1` | `0` | Sustain/tail shortening in voices |
 | `warpEnabled` | `Tempo sync` | bool | `true` | Enables tempo-sync warp behavior |
+| `samplePunch` | `Punch` | float `0..1` | `0` | Sample-specific transient volume boost |
 | `samplePitchSemitones` | `Pitch` | float `-6..6` semitones | `0` | Sample-specific pitch offset for the selected sample group |
 
 ## Sample Selection And Sample-Specific State
@@ -194,13 +195,23 @@ with a legacy index fallback. This object uses `ValueTree`, `CriticalSection`,
 string IDs, and linear scans. It is appropriate for UI edits and plugin-state
 save/restore only; it must not be read from the audio thread.
 
-`samplePitchSemitones` is the first sample-specific parameter. The editor reads
-and writes it through the processor's sample-specific helpers, so changing the
-selected sample group updates the knob to that group's stored value. The audio
-thread does not read the `ValueTree`; the processor mirrors pitch values into
-`SampleSpecificPitchCache`, indexed by the loaded group's MIDI note. The cache
-stores precomputed pitch ratios, not raw UI semitone values, so voices avoid
-calling `pow()` on the audio thread.
+`samplePitchSemitones` and `samplePunch` are sample-specific parameters. The
+editor reads and writes them through the processor's sample-specific helpers, so
+changing the selected sample group updates the knobs to that group's stored
+values. The audio thread does not read the `ValueTree`; the processor mirrors
+audio-facing values into `SampleSpecificRealtimeCache`, indexed by the loaded
+group's MIDI note. The cache stores precomputed pitch ratios and punch amounts,
+not raw message-thread state, so voices avoid `ValueTree` access and pitch
+`pow()` calls on the audio thread.
+
+`samplePunch` applies a transient volume boost envelope in playback time. It
+rises from unity gain over the 2 ms before the transient, reaches the punch
+amount at the transient, then decays over 20 ms. It evaluates every transient in
+the sample metadata, so loop playback gets a new punch envelope at each
+transient on each loop pass. Warped playback maps transient starts into the
+active warped timeline (`transientTime * timeRatio`), so tempo changes move
+punch starts with the stretched/compressed loop while the rise and decay times
+remain fixed in playback time.
 
 For normal, non-warp-protected playback, pitch is applied by updating
 `SamplePlaybackRenderer::State::pitchRatio` from the realtime pitch cache each
@@ -301,8 +312,10 @@ the message thread.
 
 ## Warp And Transient Metadata
 
-Transient metadata is loaded from BinaryData JSON resources by replacing the
-WAV resource suffix `_wav` with `_transients_json`.
+Transient metadata is loaded from BinaryData JSON resources by the exact WAV
+file stem. For example, `1_v1_n1.wav` loads `1_v1_n1.transients.json`, so
+velocity groups, variations, and pitch suffixes each get their own metadata
+file. Older generated resource-name lookup remains a fallback.
 
 Recognized JSON fields:
 
