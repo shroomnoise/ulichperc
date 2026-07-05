@@ -19,7 +19,7 @@ private:
     static float getEnvelopeValueForTransient(double playbackTimeSec,
                                               double transientStartSec) noexcept;
 
-    static constexpr double preRiseSeconds = 0.01;
+    static constexpr double preRiseSeconds = 0.007;
     static constexpr double decaySeconds = 0.02;
     static constexpr float maximumAdditionalDb = 20.0f;
 };
