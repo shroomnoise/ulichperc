@@ -224,6 +224,10 @@ offline BPM-only warp cache. Non-neutral pitch on loop metadata can use a lazy
 offline pitch-aware warp cache keyed by `(quantizedBpm, quantizedPitchRatio)`.
 Pitch ratio is quantized to `0.01` semitone before cache lookup/build.
 
+Note-off is honoured only for samples whose transient metadata has `warp=true`.
+Non-warp samples play as one-shots and ignore note-off, even when they have
+transient JSON for punch or sustain shaping.
+
 For loop metadata, pitch changes on an already-playing warp-enabled loop are
 debounced in `PercussionVoice` for `0.08 s` before they reach
 `RealtimeWarpPlayer`. A new note still starts immediately with the current pitch

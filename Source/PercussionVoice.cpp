@@ -50,8 +50,8 @@ void PercussionVoice::stopNote(float /*velocity*/, bool allowTailOff)
 {
     if (allowTailOff)
     {
-        // If sample has no transient JSON, treat it as one-shot and ignore note-off.
-        if (metadata != nullptr && !metadata->hasTransientJson)
+        // Only warp-enabled samples are key-held; non-warp samples play as one-shots.
+        if (metadata == nullptr || !metadata->warp)
             return;
 
         adsr.noteOff();
